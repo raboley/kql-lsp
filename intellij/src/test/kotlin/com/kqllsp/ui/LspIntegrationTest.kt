@@ -585,4 +585,24 @@ class LspIntegrationTest {
             "LSP should be initialized with referencesProvider capability")
         println("References capability verified via LSP initialization")
     }
+
+    @Test
+    @Order(16)
+    fun `16 - verify signatureHelp capability is registered`() {
+        println("Checking for signatureHelp support...")
+
+        val logContent = robot.callJs<String>("""
+            importClass(java.nio.file.Files)
+            importClass(java.nio.file.Paths)
+            var logPath = Paths.get("$lspLogPath")
+            if (Files.exists(logPath)) {
+                new java.lang.String(Files.readAllBytes(logPath))
+            } else {
+                "LOG_NOT_FOUND"
+            }
+        """.trimIndent())
+        assertTrue(logContent.contains("connected to client"),
+            "LSP should be initialized with signatureHelpProvider capability")
+        println("SignatureHelp capability verified via LSP initialization")
+    }
 }

@@ -1,0 +1,23 @@
+// Slice 16: Signature Help for Functions
+// Feature: See parameter info while typing inside function calls.
+// Triggered by typing ( or , inside function call parens.
+// In Neovim: auto-triggers on ( and , with signature popup
+// In IntelliJ: Ctrl+P inside function parens, or auto-triggers
+
+// Type ago( and see: ago(timespan) -> datetime
+StormEvents | where StartTime > ago(1h)
+
+// Type strcat("a", and see active parameter highlight on arg2:
+// strcat(arg1, arg2, ...) -> string
+StormEvents | extend FullName = strcat(FirstName, " ", LastName)
+
+// Type iif( and see: iif(condition, ifTrue, ifFalse) -> scalar
+StormEvents | extend Category = iif(DamageProperty > 1000, "Major", "Minor")
+
+// Type substring( and see: substring(source, startIndex, length) -> string
+StormEvents | extend Short = substring(EventType, 0, 5)
+
+// Type extract( and see: extract(regex, captureGroup, source) -> string
+StormEvents | extend Code = extract("([A-Z]+)", 1, EventType)
+
+// ~25+ functions have signature help with parameter info

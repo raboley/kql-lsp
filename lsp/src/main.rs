@@ -6,6 +6,7 @@ mod hover;
 mod lexer;
 mod parser;
 mod references;
+mod signature_help;
 mod rpc;
 mod semantic_tokens;
 mod server;
@@ -89,6 +90,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/hover" => handle_hover(writer, state, msg),
         "textDocument/definition" => handle_definition(writer, state, msg),
         "textDocument/references" => handle_references(writer, state, msg),
+        "textDocument/signatureHelp" => handle_signature_help(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -126,6 +128,9 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                 },
                 "completionProvider": {
                     "triggerCharacters": ["|", " "]
+                },
+                "signatureHelpProvider": {
+                    "triggerCharacters": ["(", ","]
                 },
                 "hoverProvider": true,
                 "definitionProvider": true,
@@ -677,6 +682,85 @@ fn handle_references<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     });
 
     rpc::write_response(writer, &response, "textDocument/references");
+}
+
+fn handle_signature_help<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/signatureHelp: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    let position = req.get("params").and_then(|p| p.get("position"));
+
+    let line = position
+        .and_then(|p| p.get("line"))
+        .and_then(|l| l.as_u64())
+        .unwrap_or(0) as u32;
+    let character = position
+        .and_then(|p| p.get("character"))
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0) as u32;
+
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let rope = ropey::Rope::from_str(&text);
+    let pos = lsp_types::Position { line, character };
+    let offset = document::DocumentStore::position_to_offset(&rope, pos);
+
+    let response = if let Some(help) = signature_help::signature_help_at(&text, offset) {
+        let params: Vec<Value> = help
+            .signature
+            .parameters
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "label": p.label
+                })
+            })
+            .collect();
+
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "signatures": [{
+                    "label": help.signature.label,
+                    "documentation": help.signature.documentation,
+                    "parameters": params
+                }],
+                "activeSignature": 0,
+                "activeParameter": help.active_parameter
+            }
+        })
+    } else {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": null
+        })
+    };
+
+    rpc::write_response(writer, &response, "textDocument/signatureHelp");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
