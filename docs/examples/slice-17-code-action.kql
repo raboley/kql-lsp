@@ -1,0 +1,17 @@
+// Slice 17: Code Action — Fix Missing Semicolon
+// Feature: When a let statement is missing its semicolon, a quick fix offers to add it.
+// In Neovim: use :lua vim.lsp.buf.code_action() or <leader>ca
+// In IntelliJ: Alt+Enter on the diagnostic
+
+// This let statement is missing a semicolon:
+let x = 10
+
+// Place cursor on the line above and trigger code actions.
+// You should see: "Add missing semicolon"
+// Applying the action inserts a semicolon after "10":
+//   let x = 10;
+
+// This let statement already has a semicolon — no action offered:
+let y = 20;
+
+StormEvents | where DamageProperty > x

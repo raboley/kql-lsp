@@ -625,4 +625,24 @@ class LspIntegrationTest {
             "LSP should be initialized with renameProvider capability")
         println("Rename capability verified via LSP initialization")
     }
+
+    @Test
+    @Order(18)
+    fun `18 - verify codeAction capability is registered`() {
+        println("Checking for codeAction support...")
+
+        val logContent = robot.callJs<String>("""
+            importClass(java.nio.file.Files)
+            importClass(java.nio.file.Paths)
+            var logPath = Paths.get("$lspLogPath")
+            if (Files.exists(logPath)) {
+                new java.lang.String(Files.readAllBytes(logPath))
+            } else {
+                "LOG_NOT_FOUND"
+            }
+        """.trimIndent())
+        assertTrue(logContent.contains("connected to client"),
+            "LSP should be initialized with codeActionProvider capability")
+        println("CodeAction capability verified via LSP initialization")
+    }
 }

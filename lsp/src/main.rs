@@ -1,3 +1,4 @@
+mod code_actions;
 mod completion;
 mod definition;
 mod diagnostics;
@@ -92,6 +93,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/references" => handle_references(writer, state, msg),
         "textDocument/signatureHelp" => handle_signature_help(writer, state, msg),
         "textDocument/rename" => handle_rename(writer, state, msg),
+        "textDocument/codeAction" => handle_code_action(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -137,6 +139,7 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                 "definitionProvider": true,
                 "referencesProvider": true,
                 "renameProvider": true,
+                "codeActionProvider": true,
                 "documentSymbolProvider": true,
                 "semanticTokensProvider": {
                     "legend": {
@@ -849,6 +852,100 @@ fn handle_rename<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) 
     };
 
     rpc::write_response(writer, &response, "textDocument/rename");
+}
+
+fn handle_code_action<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/codeAction: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    let range = req.get("params").and_then(|p| p.get("range"));
+
+    let start_line = range
+        .and_then(|r| r.get("start"))
+        .and_then(|s| s.get("line"))
+        .and_then(|l| l.as_u64())
+        .unwrap_or(0) as u32;
+    let start_char = range
+        .and_then(|r| r.get("start"))
+        .and_then(|s| s.get("character"))
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0) as u32;
+    let end_line = range
+        .and_then(|r| r.get("end"))
+        .and_then(|s| s.get("line"))
+        .and_then(|l| l.as_u64())
+        .unwrap_or(0) as u32;
+    let end_char = range
+        .and_then(|r| r.get("end"))
+        .and_then(|s| s.get("character"))
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0) as u32;
+
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let rope = ropey::Rope::from_str(&text);
+    let start_offset = document::DocumentStore::position_to_offset(
+        &rope,
+        lsp_types::Position { line: start_line, character: start_char },
+    );
+    let end_offset = document::DocumentStore::position_to_offset(
+        &rope,
+        lsp_types::Position { line: end_line, character: end_char },
+    );
+
+    let actions = code_actions::code_actions_at(&text, start_offset, end_offset);
+
+    let lsp_actions: Vec<Value> = actions
+        .iter()
+        .map(|action| {
+            let edit_pos = document::DocumentStore::offset_to_position(&rope, action.edit_offset);
+            serde_json::json!({
+                "title": action.title,
+                "kind": "quickfix",
+                "edit": {
+                    "changes": {
+                        uri_str: [{
+                            "range": {
+                                "start": { "line": edit_pos.line, "character": edit_pos.character },
+                                "end": { "line": edit_pos.line, "character": edit_pos.character }
+                            },
+                            "newText": action.edit_text
+                        }]
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": lsp_actions
+    });
+
+    rpc::write_response(writer, &response, "textDocument/codeAction");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
