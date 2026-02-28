@@ -1,0 +1,14 @@
+// Slice 2: Parser + First Real Diagnostic
+// Feature: Parse errors appear as red squiggly diagnostics in the editor.
+
+// VALID — no errors:
+StormEvents | take 10
+
+// VALID — where with a predicate:
+StormEvents | where DamageProperty > 100
+
+// ERROR — incomplete where clause (try this to see a diagnostic):
+// StormEvents | where
+
+// ERROR — missing right-hand side:
+// StormEvents | where X >

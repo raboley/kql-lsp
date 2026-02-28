@@ -1,0 +1,39 @@
+// Slice 9: Hover Documentation for Built-in Functions
+// Feature: Hover over a function name to see its signature and description.
+// In Neovim: place cursor on function name, press K
+// In IntelliJ: hover mouse over function name
+
+// Hover over "count" to see:  count() -> long
+StormEvents | summarize count() by State
+
+// Hover over "ago" to see:  ago(timespan) -> datetime
+StormEvents | where StartTime > ago(1h)
+
+// Hover over "sum" to see:  sum(expr) -> numeric
+StormEvents | summarize sum(DamageProperty)
+
+// Hover over "strcat" to see:  strcat(arg1, arg2, ...) -> string
+StormEvents | extend FullName = strcat(FirstName, " ", LastName)
+
+// Hover over "tostring" to see:  tostring(expr) -> string
+StormEvents | extend DamageStr = tostring(DamageProperty)
+
+// Hover over tabular operators too:
+// Hover "where" to see: Filters rows based on a predicate expression.
+// Hover "project" to see: Selects columns to include, rename, or drop.
+// Hover "summarize" to see: Produces a table that aggregates the content.
+StormEvents
+| where State == 'TEXAS'
+| project State, EventType, DamageProperty
+| summarize count() by EventType
+
+// ~50 built-in functions have hover docs including:
+// count, sum, avg, min, max, dcount, countif, sumif,
+// ago, now, strcat, tostring, toint, tolong, strlen,
+// substring, trim, toupper, tolower, replace_string,
+// bin, floor, ceiling, round, iif, iff, isempty, isnotempty,
+// isnull, isnotnull, extract, parse_json, todynamic,
+// todatetime, totimespan, todouble, toreal, format_datetime,
+// datetime_diff, startofday, endofday, startofweek,
+// startofmonth, startofyear, array_length, pack, pack_all,
+// percentile, make_list, make_set

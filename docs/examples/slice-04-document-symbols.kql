@@ -1,0 +1,17 @@
+// Slice 4: Document Symbols (Outline View)
+// Feature: The outline/symbol view shows let bindings and queries.
+// In Neovim: :lua vim.lsp.buf.document_symbol()
+// In IntelliJ: View > Tool Windows > Structure
+
+let threshold = 100;
+
+let minDate = ago(7d);
+
+StormEvents
+| where DamageProperty > threshold
+| take 10
+
+// The outline should show:
+//   threshold (Variable)
+//   minDate (Variable)
+//   StormEvents (Event/query)

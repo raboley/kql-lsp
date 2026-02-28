@@ -1,0 +1,33 @@
+// Slice 10: String Operators, Logical Operators, and Timespan Literals
+// Feature: String comparison operators, and/or/not, and timespan literals like 1h, 30m.
+
+// String operators — hover to see documentation:
+StormEvents | where State contains "TEX"
+StormEvents | where EventType has "storm"
+StormEvents | where State startswith "NEW"
+StormEvents | where State endswith "IA"
+
+// Case-sensitive variants:
+StormEvents | where State contains_cs "Tex"
+StormEvents | where EventType has_cs "Storm"
+
+// Logical operators:
+StormEvents | where State contains "TEX" and DamageProperty > 0
+StormEvents | where State == "TEXAS" or State == "OKLAHOMA"
+StormEvents | where not (DamageProperty == 0)
+
+// Timespan literals (highlighted as numbers):
+StormEvents | where StartTime > ago(1h)
+StormEvents | where StartTime > ago(30m)
+StormEvents | where StartTime > ago(7d)
+StormEvents | where StartTime > ago(1s)
+StormEvents | where Duration > 500ms
+
+// Combined example:
+StormEvents
+| where StartTime > ago(24h)
+    and State contains "TEX"
+    and DamageProperty > 100
+| project State, EventType, DamageProperty
+| sort by DamageProperty
+| take 10

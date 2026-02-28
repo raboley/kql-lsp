@@ -1,0 +1,20 @@
+// Slice 5: Completion After Pipe
+// Feature: Typing | shows tabular operator completions.
+// Try placing your cursor after the pipe and triggering completion.
+
+StormEvents |
+
+// You should see completions like:
+//   where    — Filter rows based on a predicate
+//   project  — Select columns to include, rename, or drop
+//   extend   — Create calculated columns and append them
+//   summarize — Aggregate groups of rows
+//   take     — Return up to the specified number of rows
+//   sort     — Sort rows by one or more columns
+//   count    — Return the number of rows
+//   distinct — Return distinct combinations of columns
+//   join     — Merge rows of two tables by matching values
+//   union    — Take two or more tables and return all their rows
+//   render   — Render results as a chart
+//   parse    — Evaluate a string expression and parse its value
+//   mv-expand — Expand multi-value dynamic arrays or property bags

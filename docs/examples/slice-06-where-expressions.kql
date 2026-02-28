@@ -1,0 +1,18 @@
+// Slice 6: Where with Comparison Expressions
+// Feature: Binary expressions with arithmetic and comparison operators parse correctly.
+
+// Comparison operators:
+StormEvents | where DamageProperty > 100
+StormEvents | where State == 'TEXAS'
+StormEvents | where Count != 0
+StormEvents | where Value >= 50
+StormEvents | where Value <= 200
+
+// Arithmetic in expressions:
+StormEvents | where DamageProperty + DamageCrops > 1000
+
+// Multi-pipe chains:
+StormEvents
+| where DamageProperty > 100
+| where State == 'TEXAS'
+| take 10

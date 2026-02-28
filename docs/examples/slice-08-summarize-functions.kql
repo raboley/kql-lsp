@@ -1,0 +1,19 @@
+// Slice 8: Summarize with Aggregation Functions
+// Feature: summarize ... by groups rows; function calls parse correctly.
+
+// Basic count:
+StormEvents | summarize count()
+
+// Count by group:
+StormEvents | summarize count() by State
+
+// Multiple aggregations:
+StormEvents | summarize count(), sum(DamageProperty), avg(DamageProperty) by State
+
+// Named aggregations:
+StormEvents
+| summarize EventCount = count(), TotalDamage = sum(DamageProperty) by State
+
+// Function calls with arguments:
+StormEvents | summarize dcount(EventType) by State
+StormEvents | summarize countif(DamageProperty > 0) by State

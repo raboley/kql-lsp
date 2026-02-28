@@ -1,0 +1,21 @@
+// Slice 3: Semantic Tokens (Syntax Highlighting)
+// Feature: Keywords, identifiers, numbers, strings, operators, and comments
+// all get distinct colors via semantic tokens.
+
+// Keywords are colored as 'keyword':
+StormEvents | where State == 'TEXAS' | take 10
+
+// Numbers are colored as 'number':
+StormEvents | take 42
+
+// Strings are colored as 'string':
+StormEvents | where Name == "Thunderstorm Wind"
+
+// Comments are colored as 'comment':
+// This whole line is a comment
+
+// Pipe | and operators (>, <, ==, !=) are colored as 'operator':
+StormEvents | where DamageProperty >= 100
+
+// Identifiers (table/column names) are colored as 'property':
+StormEvents | where EventType == 'Tornado'

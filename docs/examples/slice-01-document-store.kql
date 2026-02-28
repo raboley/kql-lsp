@@ -1,0 +1,9 @@
+// Slice 1: Document Store + Rope Foundation
+// Feature: Documents are stored in a rope data structure with UTF-16 position conversion.
+// Open this file in Neovim or IntelliJ — the LSP attaches and processes it.
+
+StormEvents
+| take 10
+
+// Multi-byte characters are handled correctly via ropey:
+// München, 東京, São Paulo
