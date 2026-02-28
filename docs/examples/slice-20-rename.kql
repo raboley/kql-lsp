@@ -1,0 +1,16 @@
+// Slice 20: Rename Symbol
+// Feature: Rename a let-bound variable and all its references update.
+// In Neovim: place cursor on variable, use :lua vim.lsp.buf.rename()
+// In IntelliJ: Shift+F6 on variable
+
+let threshold = 100;
+
+let y = threshold + 50;
+
+StormEvents | where DamageProperty > threshold
+
+// Place cursor on any "threshold" and rename to "minDamage".
+// All 3 occurrences should update simultaneously:
+//   let minDamage = 100;
+//   let y = minDamage + 50;
+//   StormEvents | where DamageProperty > minDamage
