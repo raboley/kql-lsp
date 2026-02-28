@@ -1,0 +1,19 @@
+// Slice 12: Find References
+// Feature: Find all usages of a let-bound variable.
+// In Neovim: place cursor on variable, use :lua vim.lsp.buf.references()
+// In IntelliJ: Right-click > Find Usages (or Alt+F7)
+
+let x = 10;
+
+let y = x + 1;
+
+StormEvents | where Col > x
+
+// Place cursor on "x" anywhere and find references.
+// It should find 3 locations:
+//   1. "x" in "let x = 10;" (declaration)
+//   2. "x" in "let y = x + 1;" (usage in let)
+//   3. "x" in "where Col > x" (usage in query)
+//
+// Find references on "StormEvents" or "Col" returns empty
+// (they are not let-bound variables).

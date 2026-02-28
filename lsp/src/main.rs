@@ -5,6 +5,7 @@ mod document;
 mod hover;
 mod lexer;
 mod parser;
+mod references;
 mod rpc;
 mod semantic_tokens;
 mod server;
@@ -87,6 +88,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/completion" => handle_completion(writer, state, msg),
         "textDocument/hover" => handle_hover(writer, state, msg),
         "textDocument/definition" => handle_definition(writer, state, msg),
+        "textDocument/references" => handle_references(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -127,6 +129,7 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                 },
                 "hoverProvider": true,
                 "definitionProvider": true,
+                "referencesProvider": true,
                 "documentSymbolProvider": true,
                 "semanticTokensProvider": {
                     "legend": {
@@ -605,6 +608,75 @@ fn handle_definition<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     };
 
     rpc::write_response(writer, &response, "textDocument/definition");
+}
+
+fn handle_references<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/references: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    let position = req.get("params").and_then(|p| p.get("position"));
+
+    let line = position
+        .and_then(|p| p.get("line"))
+        .and_then(|l| l.as_u64())
+        .unwrap_or(0) as u32;
+    let character = position
+        .and_then(|p| p.get("character"))
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0) as u32;
+
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let rope = ropey::Rope::from_str(&text);
+    let pos = lsp_types::Position { line, character };
+    let offset = document::DocumentStore::position_to_offset(&rope, pos);
+
+    let refs = references::find_references(&text, offset);
+
+    let lsp_locations: Vec<Value> = refs
+        .iter()
+        .map(|r| {
+            let start = document::DocumentStore::offset_to_position(&rope, r.offset);
+            let end = document::DocumentStore::offset_to_position(&rope, r.offset + r.len);
+            serde_json::json!({
+                "uri": uri_str,
+                "range": {
+                    "start": { "line": start.line, "character": start.character },
+                    "end": { "line": end.line, "character": end.character }
+                }
+            })
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": lsp_locations
+    });
+
+    rpc::write_response(writer, &response, "textDocument/references");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
