@@ -1,0 +1,14 @@
+// Slice 13: Join Operator
+// Feature: Join two tables by matching values on a key column.
+
+// Basic join:
+T1 | join (T2) on Key
+
+// Join with kind:
+T1 | join kind=inner (T2) on Key
+
+// Left outer join:
+StormEvents | join kind=leftouter (PopulationData) on State
+
+// The parser handles join loosely — it consumes all tokens between
+// join and the next pipe, so complex join syntax is accepted.
