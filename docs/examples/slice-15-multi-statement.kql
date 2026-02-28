@@ -1,0 +1,26 @@
+// Slice 15: Multiple Statements + Statement Separation
+// Feature: Files with multiple queries separated by blank lines parse independently.
+// Let chains with semicolons work. Diagnostics are scoped to individual statements.
+
+// Two separate queries separated by a blank line:
+
+StormEvents | take 10
+
+OtherTable | where State == "TEXAS"
+
+// Let bindings followed by a query:
+
+let threshold = 100;
+let multiplier = 2;
+
+StormEvents | where DamageProperty > threshold
+
+// Each statement parses independently. An error in one query
+// does NOT produce diagnostics on other (valid) queries.
+
+// For example, if the second query below is incomplete,
+// only it would show an error -- the first query stays clean:
+//
+//   StormEvents | take 10      <-- no error
+//
+//   OtherTable | where          <-- error: expected expression after 'where'

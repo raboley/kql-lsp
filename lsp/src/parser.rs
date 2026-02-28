@@ -770,4 +770,27 @@ mod tests {
         let result = parse("StormEvents | where StartTime > ago(1h)");
         assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
     }
+
+    #[test]
+    fn parse_multi_statement_valid() {
+        let result = parse("StormEvents | take 10\n\nOtherTable | where State == \"TEXAS\"");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_multi_statement_error_on_second() {
+        let result = parse("StormEvents | take 10\n\nOtherTable | where");
+        assert!(!result.errors.is_empty(), "Should have error for incomplete where");
+        // Error offset should be at the end of the text (after 'where')
+        let err = &result.errors[0];
+        // "StormEvents | take 10\n\nOtherTable | where" is 41 bytes
+        // The error should be at byte 41 (past end of 'where')
+        assert!(err.offset >= 23, "Error offset {} should be on line 2 (offset >= 23)", err.offset);
+    }
+
+    #[test]
+    fn parse_let_chain_then_query() {
+        let result = parse("let x = 1;\nlet y = 2;\nStormEvents | where Col > x");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
 }
