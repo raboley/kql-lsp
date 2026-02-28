@@ -18,3 +18,8 @@ intellij/.intellijPlatform/
 
 # Neovim
 neovim/.testenv/
+/.idea/.gitignore
+/.idea/copilot.data.migration.agent.xml
+/.idea/kql-lsp.iml
+/.idea/modules.xml
+/.idea/vcs.xml

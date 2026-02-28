@@ -18,6 +18,12 @@ The workflow is:
 
 Do NOT skip steps. Do NOT implement without tests. Do NOT consider a feature complete if only one editor's tests pass. See `DEVELOPMENT.md` for the full workflow with examples, setup instructions, and troubleshooting.
 
+Please Commit changes after going through the red / green / refactor cycle for a given feature.
+
+## MANDATORY: Follow the Development Plan
+
+**Before starting a new feature slice, read `PLAN.md`.** It defines the vertical feature slices, architecture decisions, and incremental build order for the KQL LSP. Each slice is end-to-end: parser extension + LSP handler + Neovim test + IntelliJ test.
+
 ## What This Repo Is
 
 A KQL (Kusto Query Language) LSP with plugins for both Neovim and IntelliJ. The monorepo has three parts:
