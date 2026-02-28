@@ -5,6 +5,7 @@ mod parser;
 mod rpc;
 mod semantic_tokens;
 mod server;
+mod symbols;
 mod syntax;
 
 use env_logger::{Builder, Target};
@@ -79,6 +80,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/didChange" => handle_did_change(writer, state, msg),
         "textDocument/didClose" => handle_did_close(state, msg),
         "textDocument/semanticTokens/full" => handle_semantic_tokens(writer, state, msg),
+        "textDocument/documentSymbol" => handle_document_symbols(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -114,6 +116,7 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                     "interFileDependencies": false,
                     "workspaceDiagnostics": false
                 },
+                "documentSymbolProvider": true,
                 "semanticTokensProvider": {
                     "legend": {
                         "tokenTypes": token_types,
@@ -319,6 +322,70 @@ fn handle_semantic_tokens<W: Write>(writer: &mut W, state: &mut ServerState, msg
     });
 
     rpc::write_response(writer, &response, "semanticTokens/full");
+}
+
+fn handle_document_symbols<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/documentSymbol: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let parse_result = parser::parse(&text);
+    let doc_symbols = symbols::extract_symbols(&parse_result);
+    let rope = ropey::Rope::from_str(&text);
+
+    let lsp_symbols: Vec<Value> = doc_symbols
+        .iter()
+        .map(|s| {
+            let range_start = document::DocumentStore::offset_to_position(&rope, s.range_start);
+            let range_end = document::DocumentStore::offset_to_position(&rope, s.range_end);
+            let sel_start = document::DocumentStore::offset_to_position(&rope, s.selection_start);
+            let sel_end = document::DocumentStore::offset_to_position(&rope, s.selection_end);
+
+            serde_json::json!({
+                "name": s.name,
+                "kind": s.kind,
+                "range": {
+                    "start": { "line": range_start.line, "character": range_start.character },
+                    "end": { "line": range_end.line, "character": range_end.character }
+                },
+                "selectionRange": {
+                    "start": { "line": sel_start.line, "character": sel_start.character },
+                    "end": { "line": sel_end.line, "character": sel_end.character }
+                }
+            })
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": lsp_symbols
+    });
+
+    rpc::write_response(writer, &response, "textDocument/documentSymbol");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {

@@ -143,7 +143,9 @@ impl<'a> Parser<'a> {
         self.skip_trivia();
 
         while self.pos < self.tokens.len() {
-            if self.at_any(&[SyntaxKind::Identifier, SyntaxKind::Pipe]) {
+            if self.at(SyntaxKind::LetKw) {
+                self.parse_let_statement();
+            } else if self.at_any(&[SyntaxKind::Identifier, SyntaxKind::Pipe]) {
                 self.parse_query_statement();
             } else if self.at_any(&[SyntaxKind::Whitespace, SyntaxKind::Newline, SyntaxKind::Comment]) {
                 self.bump();
@@ -153,6 +155,44 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_let_statement(&mut self) {
+        self.builder.start_node(SyntaxKind::LetStatement.into());
+
+        self.bump(); // let keyword
+        self.skip_trivia();
+
+        // Parse name
+        if self.at(SyntaxKind::Identifier) {
+            self.builder.start_node(SyntaxKind::NameRef.into());
+            self.bump();
+            self.builder.finish_node();
+        } else {
+            self.error_at_current("expected identifier after 'let'");
+        }
+
+        self.skip_trivia();
+
+        // Parse = sign
+        if !self.eat(SyntaxKind::Equals) {
+            self.error_at_current("expected '=' in let statement");
+        }
+
+        self.skip_trivia();
+
+        // Parse value expression - consume everything until semicolon or end
+        // For now, just parse a simple expression or consume tokens until semicolon
+        if !self.at(SyntaxKind::Semicolon) && self.current().is_some() {
+            self.parse_expression();
+        }
+
+        self.skip_trivia();
+
+        // Parse optional semicolon
+        self.eat(SyntaxKind::Semicolon);
 
         self.builder.finish_node();
     }

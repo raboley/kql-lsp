@@ -41,6 +41,7 @@ pub enum SyntaxKind {
 
     // Composite nodes
     SourceFile,
+    LetStatement,
     QueryStatement,
     PipeExpression,
     TakeClause,
