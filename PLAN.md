@@ -355,7 +355,33 @@ lsp/src/
 
 ---
 
-## Slice 16: Signature Help for Functions
+## Slice 16: Incremental Text Sync (Partial Updates)
+
+**What ships**: Switch from full document sync to incremental sync. Editors send only the changed text range instead of the entire document on every keystroke, dramatically improving performance for large files.
+
+**Change `textDocumentSync`**: From `1` (Full) to `2` (Incremental) in initialize capabilities
+
+**Extend `DocumentStore`**: Add `change_incremental(&mut self, uri, version, changes)` that applies `TextDocumentContentChangeEvent` ranges to the rope using `rope.remove()` and `rope.insert()` with UTF-16 position conversion
+
+**Key implementation**:
+- Parse `contentChanges` array with `range` (start/end line+character) and `text`
+- Convert LSP positions to rope char offsets using `position_to_offset`
+- Apply changes in reverse order (largest offset first) to preserve positions
+- Fall back to full replacement if a change has no range
+
+**Neovim test** (`neovim/test/incremental_sync_spec.lua`):
+- Open a multi-line document, type a single character mid-document
+- Verify only an incremental change was sent (not the full document)
+- Verify diagnostics still work after incremental edits
+- Verify rapid sequential edits (simulating fast typing) don't corrupt the document
+
+**IntelliJ test**:
+- Open a file, make an edit, verify the LSP processes the change
+- Verify document content remains consistent after multiple edits
+
+---
+
+## Slice 17: Signature Help for Functions
 
 **What ships**: Typing inside `ago(` shows parameter info in both editors.
 
@@ -373,7 +399,7 @@ lsp/src/
 
 ---
 
-## Slice 17: Code Action -- Fix Missing Semicolon
+## Slice 18: Code Action -- Fix Missing Semicolon
 
 **What ships**: When a let statement is missing its semicolon, a quick fix offers to add it.
 
@@ -389,7 +415,7 @@ lsp/src/
 
 ---
 
-## Slice 18: Formatting
+## Slice 19: Formatting
 
 **What ships**: Auto-format normalizes pipe chain indentation and spacing.
 
@@ -407,7 +433,7 @@ lsp/src/
 
 ---
 
-## Slice 19: Folding Ranges
+## Slice 20: Folding Ranges
 
 **What ships**: Multi-line queries and let blocks can be collapsed.
 
@@ -421,7 +447,7 @@ lsp/src/
 
 ---
 
-## Slice 20: Rename Symbol
+## Slice 21: Rename Symbol
 
 **What ships**: Rename a let-bound variable and all references update.
 
@@ -437,7 +463,7 @@ lsp/src/
 
 ---
 
-## Slice 21+: Incremental Expansion
+## Slice 22+: Incremental Expansion
 
 After the core slices above, expand depth in each area:
 
@@ -446,7 +472,7 @@ After the core slices above, expand depth in each area:
 - **More string literal types**: Verbatim `@"..."`, obfuscated `h@"..."`, multi-line
 - **datetime/dynamic/guid literals**: `datetime(2023-01-01)`, `dynamic([1,2,3])`, `guid(...)`
 - **Logical operators**: `and`, `or`, `not`
-- **Incremental text sync**: Switch to `textDocumentSync: Incremental` with rope edits
+
 - **Inlay hints**: Inferred types, parameter names
 - **Selection range**: Smart expand/shrink based on CST
 - **Semantic token deltas**: `semanticTokens/full/delta` for performance

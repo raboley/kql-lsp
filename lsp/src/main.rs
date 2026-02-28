@@ -1,10 +1,15 @@
+mod document;
 mod rpc;
+mod server;
 
 use env_logger::{Builder, Target};
 use log::{error, info};
+use lsp_types::Uri;
 use serde_json::Value;
+use server::ServerState;
 use std::fs::OpenOptions;
 use std::io::{self, Read, stdout, Write};
+use std::str::FromStr;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdin = io::stdin();
@@ -26,6 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting KQL LSP");
 
+    let mut state = ServerState::new();
+
     loop {
         let mut chunk = [0u8; 1024];
         match stdin.read(&mut chunk)? {
@@ -38,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let message_bytes = buffer[..message_end].to_vec();
             match rpc::decode_message(&message_bytes) {
                 Ok((method, json_bytes)) => {
-                    handle_message(&mut stdout(), &method, json_bytes);
+                    handle_message(&mut stdout(), &mut state, &method, json_bytes);
                 }
                 Err(e) => error!("Failed to decode message: {}", e),
             }
@@ -49,25 +56,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn handle_message<W: Write>(writer: &mut W, method: &str, msg: &[u8]) {
+fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &str, msg: &[u8]) {
     info!("Received msg with method: {}", method);
 
     match method {
-        "initialize" => handle_initialize(writer, msg),
-        "initialized" => info!("Client sent initialized notification"),
-        "shutdown" => handle_shutdown(writer, msg),
+        "initialize" => handle_initialize(writer, state, msg),
+        "initialized" => {
+            state.initialized = true;
+            info!("Client sent initialized notification");
+        }
+        "shutdown" => handle_shutdown(writer, state, msg),
         "exit" => {
             info!("Received exit notification, shutting down");
             std::process::exit(0);
         }
-        "textDocument/didOpen" => handle_did_open(writer, msg),
-        "textDocument/didChange" => handle_did_change(writer, msg),
-        "textDocument/didClose" => info!("textDocument/didClose received"),
+        "textDocument/didOpen" => handle_did_open(writer, state, msg),
+        "textDocument/didChange" => handle_did_change(writer, state, msg),
+        "textDocument/didClose" => handle_did_close(state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
 
-fn handle_initialize<W: Write>(writer: &mut W, msg: &[u8]) {
+fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[u8]) {
     // Parse the request to get the ID (handles both string and numeric IDs)
     let req: Value = match serde_json::from_slice(msg) {
         Ok(v) => v,
@@ -106,7 +116,7 @@ fn handle_initialize<W: Write>(writer: &mut W, msg: &[u8]) {
     rpc::write_response(writer, &response, "initialize");
 }
 
-fn handle_shutdown<W: Write>(writer: &mut W, msg: &[u8]) {
+fn handle_shutdown<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
     let req: Value = match serde_json::from_slice(msg) {
         Ok(v) => v,
         Err(e) => {
@@ -116,6 +126,7 @@ fn handle_shutdown<W: Write>(writer: &mut W, msg: &[u8]) {
     };
 
     let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+    state.shutdown_requested = true;
     info!("Shutdown requested");
 
     let response = serde_json::json!({
@@ -127,7 +138,7 @@ fn handle_shutdown<W: Write>(writer: &mut W, msg: &[u8]) {
     rpc::write_response(writer, &response, "shutdown");
 }
 
-fn handle_did_open<W: Write>(writer: &mut W, msg: &[u8]) {
+fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
     let req: Value = match serde_json::from_slice(msg) {
         Ok(v) => v,
         Err(e) => {
@@ -136,21 +147,46 @@ fn handle_did_open<W: Write>(writer: &mut W, msg: &[u8]) {
         }
     };
 
-    let uri = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
+    let params = match req.get("params") {
+        Some(p) => p,
+        None => return,
+    };
+
+    let text_document = match params.get("textDocument") {
+        Some(td) => td,
+        None => return,
+    };
+
+    let uri_str = text_document
+        .get("uri")
         .and_then(|u| u.as_str())
         .unwrap_or("unknown");
+    let text = text_document
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+    let version = text_document
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let language_id = text_document
+        .get("languageId")
+        .and_then(|l| l.as_str())
+        .unwrap_or("kql");
 
-    info!("Opened: {}", uri);
+    info!("Opened: {} (version {}, {} bytes)", uri_str, version, text.len());
 
-    // For now, publish empty diagnostics (features come later via TDD)
+    // Store document in rope-backed document store
+    if let Ok(uri) = Uri::from_str(uri_str) {
+        state.documents.open(uri, version, text, language_id);
+    }
+
+    // Publish empty diagnostics (features come later via TDD)
     let notification = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "textDocument/publishDiagnostics",
         "params": {
-            "uri": uri,
+            "uri": uri_str,
             "diagnostics": []
         }
     });
@@ -158,7 +194,7 @@ fn handle_did_open<W: Write>(writer: &mut W, msg: &[u8]) {
     rpc::write_response(writer, &notification, "didOpen diagnostics");
 }
 
-fn handle_did_change<W: Write>(writer: &mut W, msg: &[u8]) {
+fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
     let req: Value = match serde_json::from_slice(msg) {
         Ok(v) => v,
         Err(e) => {
@@ -167,24 +203,70 @@ fn handle_did_change<W: Write>(writer: &mut W, msg: &[u8]) {
         }
     };
 
-    let uri = req
+    let params = match req.get("params") {
+        Some(p) => p,
+        None => return,
+    };
+
+    let uri_str = params
+        .get("textDocument")
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+    let version = params
+        .get("textDocument")
+        .and_then(|td| td.get("version"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+
+    // For full sync (textDocumentSync: 1), the full text is in contentChanges[0].text
+    let new_text = params
+        .get("contentChanges")
+        .and_then(|cc| cc.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|change| change.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+
+    info!("Changed: {} (version {}, {} bytes)", uri_str, version, new_text.len());
+
+    // Update rope-backed document
+    if let Ok(uri) = Uri::from_str(uri_str) {
+        state.documents.change_full(&uri, version, new_text);
+    }
+
+    // Publish empty diagnostics (features come later via TDD)
+    let notification = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+            "uri": uri_str,
+            "diagnostics": []
+        }
+    });
+
+    rpc::write_response(writer, &notification, "didChange diagnostics");
+}
+
+fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/didClose: {}", e);
+            return;
+        }
+    };
+
+    let uri_str = req
         .get("params")
         .and_then(|p| p.get("textDocument"))
         .and_then(|td| td.get("uri"))
         .and_then(|u| u.as_str())
         .unwrap_or("unknown");
 
-    info!("Changed: {}", uri);
+    info!("Closed: {}", uri_str);
 
-    // For now, publish empty diagnostics (features come later via TDD)
-    let notification = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "textDocument/publishDiagnostics",
-        "params": {
-            "uri": uri,
-            "diagnostics": []
-        }
-    });
-
-    rpc::write_response(writer, &notification, "didChange diagnostics");
+    if let Ok(uri) = Uri::from_str(uri_str) {
+        state.documents.close(&uri);
+    }
 }

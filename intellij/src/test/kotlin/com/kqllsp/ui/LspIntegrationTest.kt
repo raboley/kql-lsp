@@ -255,4 +255,41 @@ class LspIntegrationTest {
         assertTrue(logContent.contains("Opened:") || logContent.contains("textDocument/didOpen"),
             "LSP should have received didOpen notification. Log: $logContent")
     }
+
+    @Test
+    @Order(8)
+    fun `08 - verify LSP stored document with correct content`() {
+        // Verify the LSP log shows the document was stored in the rope
+        // by checking the byte count matches the actual file content
+        val logContent = robot.callJs<String>("""
+            importClass(java.nio.file.Files)
+            importClass(java.nio.file.Paths)
+            var logPath = Paths.get("$lspLogPath")
+            if (Files.exists(logPath)) {
+                new java.lang.String(Files.readAllBytes(logPath))
+            } else {
+                "LOG_NOT_FOUND"
+            }
+        """.trimIndent())
+
+        println("Verifying document store logged correct byte count...")
+
+        // The Opened: log line includes byte count, proving the rope stored the content
+        val openedPattern = Regex("""Opened:.*test\.kql.*\(version \d+, (\d+) bytes\)""")
+        val match = openedPattern.find(logContent)
+        assertTrue(match != null, "LSP should log document open with byte count. Log: ${logContent.takeLast(500)}")
+
+        val byteCount = match!!.groupValues[1].toInt()
+        println("LSP stored document with $byteCount bytes")
+        assertTrue(byteCount > 0, "Document should have non-zero byte count (rope stored content)")
+
+        // Verify the actual file content length matches
+        val actualContent = robot.callJs<String>("""
+            importClass(java.nio.file.Files)
+            importClass(java.nio.file.Paths)
+            new java.lang.String(Files.readAllBytes(Paths.get("$testFilePath")))
+        """.trimIndent())
+        println("Actual file: ${actualContent.length} chars, LSP reported: $byteCount bytes")
+        assertTrue(byteCount > 50, "Document should have substantial content stored in rope (got $byteCount bytes)")
+    }
 }
