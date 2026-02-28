@@ -3,6 +3,7 @@ mod document;
 mod lexer;
 mod parser;
 mod rpc;
+mod semantic_tokens;
 mod server;
 mod syntax;
 
@@ -77,6 +78,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/didOpen" => handle_did_open(writer, state, msg),
         "textDocument/didChange" => handle_did_change(writer, state, msg),
         "textDocument/didClose" => handle_did_close(state, msg),
+        "textDocument/semanticTokens/full" => handle_semantic_tokens(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -99,6 +101,9 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
         info!("connected to client: {}, version: {}", name, version);
     }
 
+    // Build semantic token types legend
+    let token_types: Vec<&str> = semantic_tokens::TOKEN_TYPES.to_vec();
+
     let response = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -108,6 +113,13 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                 "diagnosticProvider": {
                     "interFileDependencies": false,
                     "workspaceDiagnostics": false
+                },
+                "semanticTokensProvider": {
+                    "legend": {
+                        "tokenTypes": token_types,
+                        "tokenModifiers": []
+                    },
+                    "full": true
                 }
             },
             "serverInfo": {
@@ -265,6 +277,48 @@ fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {
     });
 
     rpc::write_response(writer, &notification, "diagnostics");
+}
+
+fn handle_semantic_tokens<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse semanticTokens/full: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    // Get document text from store
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let data = semantic_tokens::compute_semantic_tokens(&text);
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "data": data
+        }
+    });
+
+    rpc::write_response(writer, &response, "semanticTokens/full");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
