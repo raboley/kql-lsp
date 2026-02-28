@@ -32,6 +32,8 @@ pub enum SyntaxKind {
     Error,
     Eof,
 
+    TimespanLiteral,
+
     // Keywords
     WhereKw,
     TakeKw,
@@ -48,6 +50,20 @@ pub enum SyntaxKind {
     DistinctKw,
     JoinKw,
     UnionKw,
+    AndKw,
+    OrKw,
+    NotKw,
+    ContainsKw,
+    NotContainsKw,
+    ContainsCsKw,
+    HasKw,
+    NotHasKw,
+    HasCsKw,
+    StartswithKw,
+    EndswithKw,
+    MatchesRegexKw,
+    InKw,
+    BetweenKw,
 
     // Composite nodes
     SourceFile,

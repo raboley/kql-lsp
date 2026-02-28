@@ -63,6 +63,29 @@ const BUILTIN_FUNCTIONS: &[FunctionDoc] = &[
     FunctionDoc { name: "make_set", signature: "make_set(expr) -> dynamic", description: "Returns a dynamic JSON array of the set of distinct values of expr." },
 ];
 
+/// String/logical operator documentation.
+struct StringOpDoc {
+    name: &'static str,
+    description: &'static str,
+}
+
+const STRING_OPERATORS: &[StringOpDoc] = &[
+    StringOpDoc { name: "contains", description: "Returns true if the right-hand-side string occurs as a subsequence of the left-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "!contains", description: "Returns true if the right-hand-side string does NOT occur in the left-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "contains_cs", description: "Returns true if the right-hand-side string occurs as a subsequence of the left-hand-side string (case-sensitive)." },
+    StringOpDoc { name: "has", description: "Returns true if the right-hand-side string is a whole term in the left-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "!has", description: "Returns true if the right-hand-side string is NOT a whole term in the left-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "has_cs", description: "Returns true if the right-hand-side string is a whole term in the left-hand-side string (case-sensitive)." },
+    StringOpDoc { name: "startswith", description: "Returns true if the left-hand-side string starts with the right-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "endswith", description: "Returns true if the left-hand-side string ends with the right-hand-side string (case-insensitive)." },
+    StringOpDoc { name: "matches regex", description: "Returns true if the left-hand-side string matches the right-hand-side regular expression." },
+    StringOpDoc { name: "in", description: "Returns true if the value equals any of the elements in a list." },
+    StringOpDoc { name: "between", description: "Returns true if the value is within an inclusive range." },
+    StringOpDoc { name: "and", description: "Logical AND operator. Returns true if both operands are true." },
+    StringOpDoc { name: "or", description: "Logical OR operator. Returns true if either operand is true." },
+    StringOpDoc { name: "not", description: "Logical NOT operator. Negates the boolean expression." },
+];
+
 /// Tabular operator documentation (for when keywords appear after pipe).
 struct OperatorDoc {
     name: &'static str,
@@ -149,6 +172,27 @@ fn hover_for_token(kind: SyntaxKind, text: &str) -> Option<HoverResult> {
             if let Some(doc) = TABULAR_OPERATORS.iter().find(|o| o.name == text) {
                 return Some(HoverResult {
                     markdown: format!("**{}** (tabular operator)\n\n{}", text, doc.description),
+                });
+            }
+            None
+        }
+        SyntaxKind::ContainsKw
+        | SyntaxKind::NotContainsKw
+        | SyntaxKind::ContainsCsKw
+        | SyntaxKind::HasKw
+        | SyntaxKind::NotHasKw
+        | SyntaxKind::HasCsKw
+        | SyntaxKind::StartswithKw
+        | SyntaxKind::EndswithKw
+        | SyntaxKind::MatchesRegexKw
+        | SyntaxKind::InKw
+        | SyntaxKind::BetweenKw
+        | SyntaxKind::AndKw
+        | SyntaxKind::OrKw
+        | SyntaxKind::NotKw => {
+            if let Some(doc) = STRING_OPERATORS.iter().find(|o| o.name == text) {
+                return Some(HoverResult {
+                    markdown: format!("**{}** (operator)\n\n{}", text, doc.description),
                 });
             }
             None

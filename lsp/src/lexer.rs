@@ -168,7 +168,39 @@ pub fn lex(input: &str) -> Vec<Token> {
                     }
                 }
                 let end = chars.peek().map_or(input.len(), |&(i, _)| i);
-                Token { kind: SyntaxKind::IntLiteral, len: end - start }
+                // Check for timespan suffix: d, h, m, s, ms, us, tick
+                let suffix_start = end;
+                let text_after = &input[suffix_start..];
+                let timespan_suffix = if text_after.starts_with("tick") {
+                    Some(4)
+                } else if text_after.starts_with("ms") || text_after.starts_with("us") {
+                    Some(2)
+                } else if text_after.starts_with('d')
+                    || text_after.starts_with('h')
+                    || text_after.starts_with('m')
+                    || text_after.starts_with('s')
+                {
+                    // Make sure it's not the start of an identifier (e.g. "10days")
+                    let next_after = text_after.get(1..2).and_then(|s| s.chars().next());
+                    if next_after.map_or(true, |c| !c.is_alphanumeric() && c != '_') {
+                        Some(1)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(suffix_len) = timespan_suffix {
+                    // Consume the suffix characters
+                    for _ in 0..suffix_len {
+                        chars.next();
+                    }
+                    let total_end = chars.peek().map_or(input.len(), |&(i, _)| i);
+                    Token { kind: SyntaxKind::TimespanLiteral, len: total_end - start }
+                } else {
+                    Token { kind: SyntaxKind::IntLiteral, len: end - start }
+                }
             }
 
             c if c.is_alphabetic() || c == '_' => {
@@ -198,6 +230,20 @@ pub fn lex(input: &str) -> Vec<Token> {
                     "distinct" => SyntaxKind::DistinctKw,
                     "join" => SyntaxKind::JoinKw,
                     "union" => SyntaxKind::UnionKw,
+                    "and" => SyntaxKind::AndKw,
+                    "or" => SyntaxKind::OrKw,
+                    "not" => SyntaxKind::NotKw,
+                    "contains" => SyntaxKind::ContainsKw,
+                    "notcontains" | "!contains" => SyntaxKind::NotContainsKw,
+                    "contains_cs" => SyntaxKind::ContainsCsKw,
+                    "has" => SyntaxKind::HasKw,
+                    "nothas" | "!has" => SyntaxKind::NotHasKw,
+                    "has_cs" => SyntaxKind::HasCsKw,
+                    "startswith" => SyntaxKind::StartswithKw,
+                    "endswith" => SyntaxKind::EndswithKw,
+                    "matches" => SyntaxKind::MatchesRegexKw,
+                    "in" => SyntaxKind::InKw,
+                    "between" => SyntaxKind::BetweenKw,
                     _ => SyntaxKind::Identifier,
                 };
                 Token { kind, len: end - start }

@@ -40,9 +40,24 @@ fn token_type_for(kind: SyntaxKind) -> Option<u32> {
         | SyntaxKind::CountKw
         | SyntaxKind::DistinctKw
         | SyntaxKind::JoinKw
-        | SyntaxKind::UnionKw => Some(TOKEN_TYPE_KEYWORD),
+        | SyntaxKind::UnionKw
+        | SyntaxKind::AndKw
+        | SyntaxKind::OrKw
+        | SyntaxKind::NotKw => Some(TOKEN_TYPE_KEYWORD),
 
-        SyntaxKind::IntLiteral => Some(TOKEN_TYPE_NUMBER),
+        SyntaxKind::ContainsKw
+        | SyntaxKind::NotContainsKw
+        | SyntaxKind::ContainsCsKw
+        | SyntaxKind::HasKw
+        | SyntaxKind::NotHasKw
+        | SyntaxKind::HasCsKw
+        | SyntaxKind::StartswithKw
+        | SyntaxKind::EndswithKw
+        | SyntaxKind::MatchesRegexKw
+        | SyntaxKind::InKw
+        | SyntaxKind::BetweenKw => Some(TOKEN_TYPE_OPERATOR),
+
+        SyntaxKind::IntLiteral | SyntaxKind::TimespanLiteral => Some(TOKEN_TYPE_NUMBER),
 
         SyntaxKind::StringLiteral => Some(TOKEN_TYPE_STRING),
 

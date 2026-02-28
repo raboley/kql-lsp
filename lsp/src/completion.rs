@@ -100,6 +100,20 @@ fn is_keyword(kind: SyntaxKind) -> bool {
             | SyntaxKind::DistinctKw
             | SyntaxKind::JoinKw
             | SyntaxKind::UnionKw
+            | SyntaxKind::AndKw
+            | SyntaxKind::OrKw
+            | SyntaxKind::NotKw
+            | SyntaxKind::ContainsKw
+            | SyntaxKind::NotContainsKw
+            | SyntaxKind::ContainsCsKw
+            | SyntaxKind::HasKw
+            | SyntaxKind::NotHasKw
+            | SyntaxKind::HasCsKw
+            | SyntaxKind::StartswithKw
+            | SyntaxKind::EndswithKw
+            | SyntaxKind::MatchesRegexKw
+            | SyntaxKind::InKw
+            | SyntaxKind::BetweenKw
     )
 }
 

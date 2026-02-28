@@ -537,12 +537,8 @@ impl<'a> Parser<'a> {
         self.parse_binary_expr();
     }
 
-    fn parse_binary_expr(&mut self) {
-        self.parse_primary();
-        self.skip_trivia();
-
-        // Check for binary operator
-        while self.at_any(&[
+    fn at_binary_operator(&self) -> bool {
+        self.at_any(&[
             SyntaxKind::EqualEqual,
             SyntaxKind::NotEqual,
             SyntaxKind::GreaterThan,
@@ -554,13 +550,34 @@ impl<'a> Parser<'a> {
             SyntaxKind::Star,
             SyntaxKind::Slash,
             SyntaxKind::Percent,
-        ]) {
+            // String operators
+            SyntaxKind::ContainsKw,
+            SyntaxKind::NotContainsKw,
+            SyntaxKind::ContainsCsKw,
+            SyntaxKind::HasKw,
+            SyntaxKind::NotHasKw,
+            SyntaxKind::HasCsKw,
+            SyntaxKind::StartswithKw,
+            SyntaxKind::EndswithKw,
+            SyntaxKind::MatchesRegexKw,
+            SyntaxKind::InKw,
+            SyntaxKind::BetweenKw,
+            // Logical operators
+            SyntaxKind::AndKw,
+            SyntaxKind::OrKw,
+        ])
+    }
+
+    fn parse_binary_expr(&mut self) {
+        self.parse_primary();
+        self.skip_trivia();
+
+        // Check for binary operator
+        while self.at_binary_operator() {
             // Wrap existing LHS in a BinaryExpr
             let checkpoint = self.builder.checkpoint();
             self.builder.start_node_at(checkpoint, SyntaxKind::BinaryExpr.into());
 
-            // Note: LHS was already parsed above, we need to restructure.
-            // For now, just bump the operator and parse RHS.
             self.bump(); // operator
             self.skip_trivia();
 
@@ -608,9 +625,29 @@ impl<'a> Parser<'a> {
                     self.builder.finish_node();
                 }
             }
-            Some(SyntaxKind::IntLiteral) | Some(SyntaxKind::StringLiteral) => {
+            Some(SyntaxKind::IntLiteral) | Some(SyntaxKind::StringLiteral) | Some(SyntaxKind::TimespanLiteral) => {
                 self.builder.start_node(SyntaxKind::Literal.into());
                 self.bump();
+                self.builder.finish_node();
+            }
+            Some(SyntaxKind::NotKw) => {
+                // Prefix not operator
+                self.builder.start_node(SyntaxKind::BinaryExpr.into());
+                self.bump(); // not
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_primary();
+                }
+                self.builder.finish_node();
+            }
+            Some(SyntaxKind::Minus) => {
+                // Unary minus
+                self.builder.start_node(SyntaxKind::BinaryExpr.into());
+                self.bump(); // -
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_primary();
+                }
                 self.builder.finish_node();
             }
             Some(SyntaxKind::LParen) => {
@@ -707,6 +744,30 @@ mod tests {
     #[test]
     fn parse_function_call() {
         let result = parse("StormEvents | summarize count()");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_contains_operator() {
+        let result = parse("StormEvents | where State contains \"TEX\"");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_has_operator() {
+        let result = parse("StormEvents | where Name has \"storm\"");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_and_or_operators() {
+        let result = parse("StormEvents | where State contains \"TEX\" and DamageProperty > 0");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_timespan_literal() {
+        let result = parse("StormEvents | where StartTime > ago(1h)");
         assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
     }
 }
