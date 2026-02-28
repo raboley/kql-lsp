@@ -1,0 +1,21 @@
+// Slice 11: Go-to-Definition for Let-Bound Variables
+// Feature: Jump from a variable reference to its let declaration.
+// In Neovim: place cursor on variable, press gd
+// In IntelliJ: Ctrl+Click on variable
+
+let threshold = 100;
+
+let maxRows = 50;
+
+StormEvents
+| where DamageProperty > threshold
+| take maxRows
+
+// Place cursor on "threshold" in the where clause and go-to-definition.
+// It should jump to line 4: "let threshold = 100;"
+//
+// Place cursor on "maxRows" in the take clause and go-to-definition.
+// It should jump to line 6: "let maxRows = 50;"
+//
+// Go-to-definition on "StormEvents" or "DamageProperty" returns nothing
+// (no table/column catalog yet).
