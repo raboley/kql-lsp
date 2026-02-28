@@ -1,0 +1,30 @@
+<idea-plugin>
+    <id>com.kqllsp</id>
+    <name>KQL LSP</name>
+    <vendor>raboley</vendor>
+    <description><![CDATA[
+        Language support for KQL (Kusto Query Language) files powered by the KQL LSP server.
+        Provides diagnostics, hover info, completion, and other language features for .kql files.
+    ]]></description>
+
+    <!-- Dependencies -->
+    <depends>com.redhat.devtools.lsp4ij</depends>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <!-- Register the language server -->
+        <server id="kqlLspServer"
+                name="KQL LSP Server"
+                factoryClass="com.kqllsp.KqlLspServerFactory">
+            <description><![CDATA[
+                A language server for KQL (Kusto Query Language) files.
+                Provides diagnostics, hover, completion, and other language features.
+            ]]></description>
+        </server>
+
+        <!-- Map .kql files to this server -->
+        <fileNamePatternMapping patterns="*.kql"
+                                serverId="kqlLspServer"
+                                languageId="kql"/>
+    </extensions>
+</idea-plugin>

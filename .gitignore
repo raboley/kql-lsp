@@ -1,0 +1,16 @@
+# Rust
+lsp/target/
+*.log
+app.log
+
+# IntelliJ plugin
+intellij/build/
+intellij/.gradle/
+intellij/.idea/
+intellij/.intellijPlatform/
+
+# Gradle
+.gradle/
+
+# Neovim
+neovim/.testenv/

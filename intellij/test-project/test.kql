@@ -1,0 +1,5 @@
+// Sample KQL file for testing
+StormEvents
+| where StartTime > ago(7d)
+| summarize Count = count() by State
+| top 10 by Count desc
