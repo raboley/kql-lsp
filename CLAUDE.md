@@ -1,31 +1,31 @@
 # Instructions for Claude
 
+## MANDATORY: Follow the TDD Development Workflow
+
+**Before implementing ANY feature, bug fix, or change in this repo, you MUST read and follow `DEVELOPMENT.md`.**
+
+That document defines the complete TDD development loop. The key rule:
+
+> **A feature is NOT done until it passes in both Neovim AND IntelliJ.**
+
+The workflow is:
+1. Write a failing Neovim test FIRST
+2. Implement the feature in the Rust LSP binary
+3. Iterate until the Neovim test passes (~2-3 seconds per run)
+4. Write/update an IntelliJ UI test
+5. Verify the IntelliJ test passes (~11-20 seconds)
+6. Only then is the feature done — commit it
+
+Do NOT skip steps. Do NOT implement without tests. Do NOT consider a feature complete if only one editor's tests pass. See `DEVELOPMENT.md` for the full workflow with examples, setup instructions, and troubleshooting.
+
 ## What This Repo Is
 
 A KQL (Kusto Query Language) LSP with plugins for both Neovim and IntelliJ. The monorepo has three parts:
 - `lsp/` - The Rust LSP binary
-- `neovim/` - Neovim plugin + tests
-- `intellij/` - IntelliJ plugin + Remote-Robot UI tests
+- `neovim/` - Neovim plugin + tests (fast backbone — most tests go here)
+- `intellij/` - IntelliJ plugin + Remote-Robot UI tests (gate — fewer but critical)
 
-## Mandatory TDD Development Loop
-
-**A feature is NOT done until it passes in both Neovim AND IntelliJ.**
-
-### Fast Loop (Neovim — use this most of the time)
-1. Write a failing test in `neovim/test/`
-2. Implement the feature in `lsp/src/`
-3. Build: `cd lsp && cargo build --release`
-4. Run: `"C:/Program Files/Neovim/bin/nvim.exe" --headless --noplugin -u neovim/minimal_init.lua -c "PlenaryBustedFile neovim/test/YOUR_SPEC.lua"`
-5. Iterate until green (~2-3 seconds per run)
-
-### Gate (IntelliJ — run after Neovim tests pass)
-1. Write/update UI test in `intellij/src/test/kotlin/com/kqllsp/ui/`
-2. Build plugin: `cd intellij && ./gradlew build`
-3. Start IDE sandbox: `cd intellij && ./gradlew runIdeForUiTests` (if not running)
-4. Run tests: `cd intellij && ./gradlew uiTest`
-5. Must pass before feature is considered done (~20 seconds)
-
-### When to Restart the IDE Sandbox
+## When to Restart the IDE Sandbox
 - **LSP binary changes**: YES — restart IDE (lsp4ij caches the process)
 - **Plugin code changes** (Java/plugin.xml): YES — restart IDE
 - **Test-only changes** (LspIntegrationTest.kt): NO — just re-run `./gradlew uiTest`

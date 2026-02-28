@@ -7,10 +7,14 @@ app.log
 intellij/build/
 intellij/.gradle/
 intellij/.idea/
+intellij/test-project/.idea/
 intellij/.intellijPlatform/
 
 # Gradle
 .gradle/
+
+# Claude Code
+.claude/
 
 # Neovim
 neovim/.testenv/
