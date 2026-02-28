@@ -1,6 +1,10 @@
+mod diagnostics;
 mod document;
+mod lexer;
+mod parser;
 mod rpc;
 mod server;
+mod syntax;
 
 use env_logger::{Builder, Target};
 use log::{error, info};
@@ -181,17 +185,8 @@ fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]
         state.documents.open(uri, version, text, language_id);
     }
 
-    // Publish empty diagnostics (features come later via TDD)
-    let notification = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "textDocument/publishDiagnostics",
-        "params": {
-            "uri": uri_str,
-            "diagnostics": []
-        }
-    });
-
-    rpc::write_response(writer, &notification, "didOpen diagnostics");
+    // Parse and publish diagnostics
+    publish_diagnostics(writer, uri_str, text);
 }
 
 fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
@@ -235,17 +230,41 @@ fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
         state.documents.change_full(&uri, version, new_text);
     }
 
-    // Publish empty diagnostics (features come later via TDD)
+    // Parse and publish diagnostics
+    publish_diagnostics(writer, uri_str, new_text);
+}
+
+fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {
+    let parse_result = parser::parse(text);
+    let rope = ropey::Rope::from_str(text);
+    let lsp_diagnostics = diagnostics::parse_errors_to_diagnostics(&parse_result.errors, &rope);
+
+    // Convert to JSON
+    let diags_json: Vec<serde_json::Value> = lsp_diagnostics
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "range": {
+                    "start": { "line": d.range.start.line, "character": d.range.start.character },
+                    "end": { "line": d.range.end.line, "character": d.range.end.character }
+                },
+                "severity": 1, // Error
+                "source": "kql",
+                "message": d.message
+            })
+        })
+        .collect();
+
     let notification = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "textDocument/publishDiagnostics",
         "params": {
             "uri": uri_str,
-            "diagnostics": []
+            "diagnostics": diags_json
         }
     });
 
-    rpc::write_response(writer, &notification, "didChange diagnostics");
+    rpc::write_response(writer, &notification, "diagnostics");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
