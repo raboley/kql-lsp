@@ -90,6 +90,16 @@ fn is_keyword(kind: SyntaxKind) -> bool {
             | SyntaxKind::LimitKw
             | SyntaxKind::LetKw
             | SyntaxKind::ByKw
+            | SyntaxKind::ProjectKw
+            | SyntaxKind::ExtendKw
+            | SyntaxKind::SummarizeKw
+            | SyntaxKind::SortKw
+            | SyntaxKind::OrderKw
+            | SyntaxKind::TopKw
+            | SyntaxKind::CountKw
+            | SyntaxKind::DistinctKw
+            | SyntaxKind::JoinKw
+            | SyntaxKind::UnionKw
     )
 }
 

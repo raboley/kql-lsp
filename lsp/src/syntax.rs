@@ -38,6 +38,16 @@ pub enum SyntaxKind {
     LimitKw,
     LetKw,
     ByKw,
+    ProjectKw,
+    ExtendKw,
+    SummarizeKw,
+    SortKw,
+    OrderKw,
+    TopKw,
+    CountKw,
+    DistinctKw,
+    JoinKw,
+    UnionKw,
 
     // Composite nodes
     SourceFile,
@@ -46,6 +56,14 @@ pub enum SyntaxKind {
     PipeExpression,
     TakeClause,
     WhereClause,
+    ProjectClause,
+    ExtendClause,
+    SummarizeClause,
+    SortClause,
+    TopClause,
+    CountClause,
+    ColumnAssignment,
+    FunctionCallExpr,
     BinaryExpr,
     ParenExpr,
     NameRef,
@@ -66,7 +84,7 @@ impl rowan::Language for KqlLanguage {
     type Kind = SyntaxKind;
 
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
-        assert!(raw.0 <= SyntaxKind::ErrorNode as u16);
+        assert!(raw.0 <= SyntaxKind::ErrorNode as u16, "SyntaxKind out of range: {}", raw.0);
         // SAFETY: SyntaxKind is repr(u16) and we checked bounds
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }

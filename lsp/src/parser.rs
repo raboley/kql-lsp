@@ -233,17 +233,38 @@ impl<'a> Parser<'a> {
             Some(SyntaxKind::WhereKw) => {
                 self.parse_where_clause();
             }
+            Some(SyntaxKind::ProjectKw) => {
+                self.parse_project_clause();
+            }
+            Some(SyntaxKind::ExtendKw) => {
+                self.parse_extend_clause();
+            }
+            Some(SyntaxKind::SummarizeKw) => {
+                self.parse_summarize_clause();
+            }
+            Some(SyntaxKind::SortKw) | Some(SyntaxKind::OrderKw) => {
+                self.parse_sort_clause();
+            }
+            Some(SyntaxKind::TopKw) => {
+                self.parse_top_clause();
+            }
+            Some(SyntaxKind::CountKw) => {
+                self.parse_count_clause();
+            }
+            Some(SyntaxKind::DistinctKw)
+            | Some(SyntaxKind::JoinKw)
+            | Some(SyntaxKind::UnionKw) => {
+                // Known keywords - consume loosely for now
+                self.bump();
+                self.skip_trivia();
+                self.consume_until_pipe();
+            }
             Some(SyntaxKind::Identifier) => {
                 // Unknown operator - just consume the identifier and any following tokens
                 // until the next pipe or end
                 self.bump();
                 self.skip_trivia();
-                while self.current().is_some()
-                    && !self.at(SyntaxKind::Pipe)
-                    && !self.at(SyntaxKind::Newline)
-                {
-                    self.bump();
-                }
+                self.consume_until_pipe();
             }
             _ => {
                 self.error_at_current("expected operator after '|'");
@@ -292,6 +313,226 @@ impl<'a> Parser<'a> {
         self.current().is_none() || self.at(SyntaxKind::Pipe)
     }
 
+    fn consume_until_pipe(&mut self) {
+        while self.current().is_some()
+            && !self.at(SyntaxKind::Pipe)
+            && !self.at(SyntaxKind::Newline)
+        {
+            self.bump();
+        }
+    }
+
+    fn parse_project_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::ProjectClause.into());
+
+        self.bump(); // project keyword
+        self.skip_trivia();
+
+        // Parse comma-separated column list
+        if !self.at_eof_or_pipe() {
+            self.parse_expression();
+            self.skip_trivia();
+
+            while self.eat(SyntaxKind::Comma) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_expression();
+                    self.skip_trivia();
+                }
+            }
+        }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_extend_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::ExtendClause.into());
+
+        self.bump(); // extend keyword
+        self.skip_trivia();
+
+        // Parse comma-separated assignments: Name = Expr, ...
+        if !self.at_eof_or_pipe() {
+            self.parse_expression();
+            self.skip_trivia();
+
+            // Handle = assignment
+            if self.eat(SyntaxKind::Equals) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_expression();
+                    self.skip_trivia();
+                }
+            }
+
+            while self.eat(SyntaxKind::Comma) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_expression();
+                    self.skip_trivia();
+
+                    if self.eat(SyntaxKind::Equals) {
+                        self.skip_trivia();
+                        if !self.at_eof_or_pipe() {
+                            self.parse_expression();
+                            self.skip_trivia();
+                        }
+                    }
+                }
+            }
+        }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_summarize_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::SummarizeClause.into());
+
+        self.bump(); // summarize keyword
+        self.skip_trivia();
+
+        // Parse aggregation expressions until 'by' or end
+        if !self.at_eof_or_pipe() && !self.at(SyntaxKind::ByKw) {
+            self.parse_expression();
+            self.skip_trivia();
+
+            // Handle = assignment (e.g., Count = count())
+            if self.eat(SyntaxKind::Equals) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_expression();
+                    self.skip_trivia();
+                }
+            }
+
+            while self.eat(SyntaxKind::Comma) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() && !self.at(SyntaxKind::ByKw) {
+                    self.parse_expression();
+                    self.skip_trivia();
+
+                    if self.eat(SyntaxKind::Equals) {
+                        self.skip_trivia();
+                        if !self.at_eof_or_pipe() {
+                            self.parse_expression();
+                            self.skip_trivia();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse optional 'by' clause
+        if self.eat(SyntaxKind::ByKw) {
+            self.skip_trivia();
+
+            if !self.at_eof_or_pipe() {
+                self.parse_expression();
+                self.skip_trivia();
+
+                while self.eat(SyntaxKind::Comma) {
+                    self.skip_trivia();
+                    if !self.at_eof_or_pipe() {
+                        self.parse_expression();
+                        self.skip_trivia();
+                    }
+                }
+            }
+        }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_sort_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::SortClause.into());
+
+        self.bump(); // sort/order keyword
+        self.skip_trivia();
+
+        // Expect 'by' keyword
+        self.eat(SyntaxKind::ByKw);
+        self.skip_trivia();
+
+        // Parse column list with optional asc/desc
+        if !self.at_eof_or_pipe() {
+            self.parse_expression();
+            self.skip_trivia();
+            // Consume optional asc/desc
+            if self.at(SyntaxKind::Identifier) {
+                if let Some(token) = self.current_token() {
+                    let text = &self.input[self.offset..self.offset + token.len];
+                    if text == "asc" || text == "desc" {
+                        self.bump();
+                        self.skip_trivia();
+                    }
+                }
+            }
+
+            while self.eat(SyntaxKind::Comma) {
+                self.skip_trivia();
+                if !self.at_eof_or_pipe() {
+                    self.parse_expression();
+                    self.skip_trivia();
+                    // Optional asc/desc
+                    if self.at(SyntaxKind::Identifier) {
+                        if let Some(token) = self.current_token() {
+                            let text = &self.input[self.offset..self.offset + token.len];
+                            if text == "asc" || text == "desc" {
+                                self.bump();
+                                self.skip_trivia();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_top_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::TopClause.into());
+
+        self.bump(); // top keyword
+        self.skip_trivia();
+
+        // Parse count
+        if self.at(SyntaxKind::IntLiteral) {
+            self.builder.start_node(SyntaxKind::Literal.into());
+            self.bump();
+            self.builder.finish_node();
+        }
+        self.skip_trivia();
+
+        // Expect 'by' keyword
+        self.eat(SyntaxKind::ByKw);
+        self.skip_trivia();
+
+        // Parse sort expression
+        if !self.at_eof_or_pipe() {
+            self.parse_expression();
+            self.skip_trivia();
+            // Optional asc/desc
+            if self.at(SyntaxKind::Identifier) {
+                if let Some(token) = self.current_token() {
+                    let text = &self.input[self.offset..self.offset + token.len];
+                    if text == "asc" || text == "desc" {
+                        self.bump();
+                        self.skip_trivia();
+                    }
+                }
+            }
+        }
+
+        self.builder.finish_node();
+    }
+
+    fn parse_count_clause(&mut self) {
+        self.builder.start_node(SyntaxKind::CountClause.into());
+        self.bump(); // count keyword
+        self.builder.finish_node();
+    }
+
     fn parse_expression(&mut self) {
         self.parse_binary_expr();
     }
@@ -336,10 +577,36 @@ impl<'a> Parser<'a> {
 
     fn parse_primary(&mut self) {
         match self.current() {
-            Some(SyntaxKind::Identifier) => {
+            Some(SyntaxKind::Identifier) | Some(SyntaxKind::CountKw) => {
+                // Check if it's a function call: identifier followed by (
+                let checkpoint = self.builder.checkpoint();
                 self.builder.start_node(SyntaxKind::NameRef.into());
                 self.bump();
                 self.builder.finish_node();
+
+                // Look ahead for function call
+                if self.at(SyntaxKind::LParen) {
+                    self.builder.start_node_at(checkpoint, SyntaxKind::FunctionCallExpr.into());
+                    self.bump(); // (
+                    self.skip_trivia();
+
+                    // Parse arguments
+                    if !self.at(SyntaxKind::RParen) && self.current().is_some() {
+                        self.parse_expression();
+                        self.skip_trivia();
+
+                        while self.eat(SyntaxKind::Comma) {
+                            self.skip_trivia();
+                            if !self.at(SyntaxKind::RParen) && self.current().is_some() {
+                                self.parse_expression();
+                                self.skip_trivia();
+                            }
+                        }
+                    }
+
+                    self.expect(SyntaxKind::RParen);
+                    self.builder.finish_node();
+                }
             }
             Some(SyntaxKind::IntLiteral) | Some(SyntaxKind::StringLiteral) => {
                 self.builder.start_node(SyntaxKind::Literal.into());
@@ -399,5 +666,47 @@ mod tests {
     fn parse_where_missing_rhs() {
         let result = parse("StormEvents | where X >");
         assert!(!result.errors.is_empty(), "Should error on missing RHS");
+    }
+
+    #[test]
+    fn parse_project_clause() {
+        let result = parse("StormEvents | project State, EventType");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_extend_clause() {
+        let result = parse("StormEvents | extend Duration = EndTime - StartTime");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_summarize_with_by() {
+        let result = parse("StormEvents | summarize count() by State");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_sort_by() {
+        let result = parse("StormEvents | sort by State desc");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_top_clause() {
+        let result = parse("StormEvents | top 10 by Count desc");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_count_clause() {
+        let result = parse("StormEvents | count");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_function_call() {
+        let result = parse("StormEvents | summarize count()");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
     }
 }

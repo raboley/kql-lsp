@@ -188,6 +188,16 @@ pub fn lex(input: &str) -> Vec<Token> {
                     "limit" => SyntaxKind::LimitKw,
                     "let" => SyntaxKind::LetKw,
                     "by" => SyntaxKind::ByKw,
+                    "project" => SyntaxKind::ProjectKw,
+                    "extend" => SyntaxKind::ExtendKw,
+                    "summarize" => SyntaxKind::SummarizeKw,
+                    "sort" => SyntaxKind::SortKw,
+                    "order" => SyntaxKind::OrderKw,
+                    "top" => SyntaxKind::TopKw,
+                    "count" => SyntaxKind::CountKw,
+                    "distinct" => SyntaxKind::DistinctKw,
+                    "join" => SyntaxKind::JoinKw,
+                    "union" => SyntaxKind::UnionKw,
                     _ => SyntaxKind::Identifier,
                 };
                 Token { kind, len: end - start }

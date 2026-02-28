@@ -30,7 +30,17 @@ fn token_type_for(kind: SyntaxKind) -> Option<u32> {
         | SyntaxKind::TakeKw
         | SyntaxKind::LimitKw
         | SyntaxKind::LetKw
-        | SyntaxKind::ByKw => Some(TOKEN_TYPE_KEYWORD),
+        | SyntaxKind::ByKw
+        | SyntaxKind::ProjectKw
+        | SyntaxKind::ExtendKw
+        | SyntaxKind::SummarizeKw
+        | SyntaxKind::SortKw
+        | SyntaxKind::OrderKw
+        | SyntaxKind::TopKw
+        | SyntaxKind::CountKw
+        | SyntaxKind::DistinctKw
+        | SyntaxKind::JoinKw
+        | SyntaxKind::UnionKw => Some(TOKEN_TYPE_KEYWORD),
 
         SyntaxKind::IntLiteral => Some(TOKEN_TYPE_NUMBER),
 
