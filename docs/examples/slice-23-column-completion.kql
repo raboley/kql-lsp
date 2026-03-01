@@ -1,0 +1,8 @@
+// Slice 23: Column name completion (context-aware)
+// After a tabular operator, the LSP offers column names from the table's schema.
+StormEvents
+| where State == "TEXAS"
+| project State, EventType, DamageProperty
+| extend DoubledDamage = DamageProperty * 2
+| summarize count() by State
+| sort by State asc

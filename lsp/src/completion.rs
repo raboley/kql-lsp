@@ -15,9 +15,27 @@ pub struct CompletionItem {
 /// LSP CompletionItemKind values.
 const COMPLETION_KIND_KEYWORD: i32 = 14;
 const COMPLETION_KIND_CLASS: i32 = 7;
+const COMPLETION_KIND_FIELD: i32 = 5;
 
 /// Compute completions at the given byte offset in the source text.
 pub fn complete_at(text: &str, offset: usize, schema: &SchemaStore) -> Vec<CompletionItem> {
+    // Check for column completion first (most specific context)
+    if schema.is_loaded() {
+        if let Some(table_name) = find_column_completion_context(text, offset) {
+            let columns = schema.columns_for_table(&table_name);
+            if !columns.is_empty() {
+                return columns
+                    .iter()
+                    .map(|col| CompletionItem {
+                        label: col.name.clone(),
+                        kind: COMPLETION_KIND_FIELD,
+                        detail: Some(col.column_type.clone()),
+                    })
+                    .collect();
+            }
+        }
+    }
+
     // Determine context: are we after a pipe?
     if is_after_pipe(text, offset) {
         return tabular_operator_completions();
@@ -59,6 +77,83 @@ fn is_at_query_start(text: &str, offset: usize) -> bool {
     } else {
         false
     }
+}
+
+/// Returns the table name if the cursor is in a column-completion position
+/// (i.e., after a tabular operator that takes column arguments).
+fn find_column_completion_context(text: &str, offset: usize) -> Option<String> {
+    let prefix = &text[..offset.min(text.len())];
+    let tokens = lexer::lex(prefix);
+    let meaningful: Vec<_> = tokens
+        .iter()
+        .filter(|t| !catalog::is_trivia(t.kind))
+        .collect();
+
+    if meaningful.is_empty() {
+        return None;
+    }
+
+    // Check if the last meaningful token (or second-to-last if last is a partial ident)
+    // is a column-accepting operator keyword
+    let is_column_operator = |kind: SyntaxKind| {
+        matches!(
+            kind,
+            SyntaxKind::WhereKw
+                | SyntaxKind::ProjectKw
+                | SyntaxKind::ExtendKw
+                | SyntaxKind::DistinctKw
+        )
+    };
+
+    // Also match "summarize ... by" and "sort by" / "order by" / "top ... by"
+    let is_by_keyword = |kind: SyntaxKind| kind == SyntaxKind::ByKw;
+
+    let last = meaningful.last().unwrap();
+
+    let in_column_position = is_column_operator(last.kind)
+        || is_by_keyword(last.kind)
+        // After a comma in column lists (e.g., "| project State, ")
+        || last.kind == SyntaxKind::Comma
+        // After a partial identifier following a column operator or comma
+        || (meaningful.len() >= 2 && {
+            let prev = meaningful[meaningful.len() - 2];
+            (last.kind == SyntaxKind::Identifier || catalog::is_keyword(last.kind))
+                && (is_column_operator(prev.kind) || is_by_keyword(prev.kind) || prev.kind == SyntaxKind::Comma)
+        });
+
+    if !in_column_position {
+        return None;
+    }
+
+    // Find the table name: walk backward through all tokens to find the first
+    // identifier before any pipe in the current query
+    find_table_for_query(text, offset)
+}
+
+/// Walk backward through the query text to find the source table name.
+/// The table name is the first identifier at the start of the current query statement.
+fn find_table_for_query(text: &str, offset: usize) -> Option<String> {
+    let prefix = &text[..offset.min(text.len())];
+
+    // Find the start of the current query block (after last blank line or start of text)
+    let query_start = prefix.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
+    let query_text = &prefix[query_start..];
+
+    let tokens = lexer::lex(query_text);
+
+    // Walk tokens to find the first meaningful token and its offset
+    let mut pos = 0;
+    for token in &tokens {
+        if !catalog::is_trivia(token.kind) {
+            if token.kind == SyntaxKind::Identifier {
+                return Some(query_text[pos..pos + token.len].to_string());
+            }
+            break;
+        }
+        pos += token.len;
+    }
+
+    None
 }
 
 fn table_name_completions(schema: &SchemaStore) -> Vec<CompletionItem> {
@@ -158,6 +253,70 @@ mod tests {
     fn no_completion_at_start_without_schema() {
         let items = complete_at("Storm", 5, &empty_schema());
         assert!(items.is_empty(), "Should not complete at start without schema");
+    }
+
+    fn test_schema() -> SchemaStore {
+        let mut schema = SchemaStore::new();
+        schema.load(
+            crate::schema::DatabaseSchema {
+                database: "TestDB".to_string(),
+                tables: vec![
+                    crate::schema::Table {
+                        name: "StormEvents".to_string(),
+                        columns: vec![
+                            crate::schema::Column {
+                                name: "State".to_string(),
+                                column_type: "string".to_string(),
+                            },
+                            crate::schema::Column {
+                                name: "EventType".to_string(),
+                                column_type: "string".to_string(),
+                            },
+                            crate::schema::Column {
+                                name: "DamageProperty".to_string(),
+                                column_type: "long".to_string(),
+                            },
+                        ],
+                    },
+                    crate::schema::Table {
+                        name: "PopulationData".to_string(),
+                        columns: vec![],
+                    },
+                ],
+            },
+            crate::schema::SchemaSource::Static,
+        );
+        schema
+    }
+
+    #[test]
+    fn complete_columns_after_where() {
+        let schema = test_schema();
+        let items = complete_at("StormEvents | where ", 20, &schema);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"State"), "Should contain State column");
+        assert!(labels.contains(&"EventType"), "Should contain EventType column");
+        assert!(labels.contains(&"DamageProperty"), "Should contain DamageProperty column");
+    }
+
+    #[test]
+    fn complete_columns_after_project() {
+        let schema = test_schema();
+        let items = complete_at("StormEvents | project ", 22, &schema);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"State"));
+        assert!(labels.contains(&"EventType"));
+    }
+
+    #[test]
+    fn no_columns_for_unknown_table() {
+        let schema = test_schema();
+        let items = complete_at("UnknownTable | where ", 21, &schema);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        // Should get tabular operators, not columns
+        assert!(!labels.contains(&"State"));
+        assert!(labels.contains(&"where") || labels.contains(&"project"),
+            "Should get tabular operators for unknown table");
     }
 
     #[test]

@@ -66,6 +66,7 @@ class LspIntegrationTest {
         "slice-19-folding.kql",
         "slice-20-rename.kql",
         "slice-21-schema-load.kql",
+        "slice-23-column-completion.kql",
     )
 
     /** Character offset into app.log recorded before opening example files. */
