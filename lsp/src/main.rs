@@ -3,6 +3,7 @@ mod completion;
 mod definition;
 mod diagnostics;
 mod document;
+mod folding;
 mod formatting;
 mod hover;
 mod lexer;
@@ -96,6 +97,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
         "textDocument/rename" => handle_rename(writer, state, msg),
         "textDocument/codeAction" => handle_code_action(writer, state, msg),
         "textDocument/formatting" => handle_formatting(writer, state, msg),
+        "textDocument/foldingRange" => handle_folding_range(writer, state, msg),
         other => info!("Unhandled method: {}", other),
     }
 }
@@ -143,6 +145,7 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
                 "renameProvider": true,
                 "codeActionProvider": true,
                 "documentFormattingProvider": true,
+                "foldingRangeProvider": true,
                 "documentSymbolProvider": true,
                 "semanticTokensProvider": {
                     "legend": {
@@ -1004,6 +1007,56 @@ fn handle_formatting<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     });
 
     rpc::write_response(writer, &response, "textDocument/formatting");
+}
+
+fn handle_folding_range<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
+    let req: Value = match serde_json::from_slice(msg) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("couldn't parse textDocument/foldingRange: {}", e);
+            return;
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+
+    let uri_str = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown");
+
+    let text = if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let ranges = folding::folding_ranges(&text);
+
+    let lsp_ranges: Vec<Value> = ranges
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "startLine": r.start_line,
+                "endLine": r.end_line,
+                "kind": "region"
+            })
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": lsp_ranges
+    });
+
+    rpc::write_response(writer, &response, "textDocument/foldingRange");
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {

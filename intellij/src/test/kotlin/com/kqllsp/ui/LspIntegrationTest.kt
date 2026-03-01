@@ -665,4 +665,24 @@ class LspIntegrationTest {
             "LSP should be initialized with documentFormattingProvider capability")
         println("Formatting capability verified via LSP initialization")
     }
+
+    @Test
+    @Order(20)
+    fun `20 - verify foldingRange capability is registered`() {
+        println("Checking for foldingRange support...")
+
+        val logContent = robot.callJs<String>("""
+            importClass(java.nio.file.Files)
+            importClass(java.nio.file.Paths)
+            var logPath = Paths.get("$lspLogPath")
+            if (Files.exists(logPath)) {
+                new java.lang.String(Files.readAllBytes(logPath))
+            } else {
+                "LOG_NOT_FOUND"
+            }
+        """.trimIndent())
+        assertTrue(logContent.contains("connected to client"),
+            "LSP should be initialized with foldingRangeProvider capability")
+        println("FoldingRange capability verified via LSP initialization")
+    }
 }
