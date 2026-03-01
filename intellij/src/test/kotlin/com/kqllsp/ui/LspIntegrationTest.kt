@@ -38,9 +38,10 @@ class LspIntegrationTest {
     // ====== CONFIGURE THESE ======
     private val pluginId = "com.kqllsp"
     private val lspBinaryName = "kql-lsp"
-    private val lspLogPath = "C:/Users/Russell/git/kql-lsp/lsp/app.log"
-    private val examplesSource = "C:/Users/Russell/git/kql-lsp/docs/examples"
-    private val testProjectDir = "C:/Users/Russell/git/kql-lsp/intellij/test-project"
+    private val home = System.getProperty("user.home").replace('\\', '/')
+    private val lspLogPath = "$home/git/kql-lsp/lsp/app.log"
+    private val examplesSource = "$home/git/kql-lsp/docs/examples"
+    private val testProjectDir = "$home/git/kql-lsp/intellij/test-project"
     // =============================
 
     private val exampleFiles = listOf(
@@ -226,7 +227,7 @@ class LspIntegrationTest {
                 false, true, null
             )
         """.trimIndent())
-        Thread.sleep(2000) // Give lsp4ij time to notice the new files
+        Thread.sleep(5000) // Give lsp4ij time to notice the new files
         println("Files copied and VFS refreshed. Now opening them in the IDE...")
 
         for ((index, file) in exampleFiles.withIndex()) {
@@ -234,7 +235,7 @@ class LspIntegrationTest {
             println("  [${index + 1}/${exampleFiles.size}] Opening $file")
             runCatching { openFileInIde(filePath) }
                 .onFailure { println("    WARNING: Failed to open $file: ${it.message}") }
-            Thread.sleep(500)
+            Thread.sleep(1500)
         }
 
         // Wait for the last file to appear in the LSP log
