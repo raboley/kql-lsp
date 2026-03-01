@@ -1,0 +1,4 @@
+# Slice example files copied during IntelliJ UI tests
+slice-*.kql
+# IntelliJ project files
+.idea/

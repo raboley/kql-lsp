@@ -16,6 +16,10 @@ import java.time.Duration
 /**
  * UI integration tests for the KQL LSP plugin.
  *
+ * These tests open all 20 slice example files from docs/examples/ and verify
+ * the LSP handles them without crashes. This catches regressions like the CRLF
+ * StringIndexOutOfBoundsException bug that only appeared with real Windows files.
+ *
  * Prerequisites:
  *   1. Build the LSP binary: cd ../lsp && cargo build --release
  *   2. Build the plugin: ./gradlew build
@@ -33,14 +37,88 @@ class LspIntegrationTest {
 
     // ====== CONFIGURE THESE ======
     private val pluginId = "com.kqllsp"
-    private val testFilePath = "C:/Users/Russell/git/kql-lsp/intellij/test-project/test.kql"
     private val lspBinaryName = "kql-lsp"
     private val lspLogPath = "C:/Users/Russell/git/kql-lsp/lsp/app.log"
+    private val examplesSource = "C:/Users/Russell/git/kql-lsp/docs/examples"
+    private val testProjectDir = "C:/Users/Russell/git/kql-lsp/intellij/test-project"
     // =============================
+
+    private val exampleFiles = listOf(
+        "slice-01-document-store.kql",
+        "slice-02-diagnostics.kql",
+        "slice-03-semantic-tokens.kql",
+        "slice-04-document-symbols.kql",
+        "slice-05-completion.kql",
+        "slice-06-where-expressions.kql",
+        "slice-07-project-extend.kql",
+        "slice-08-summarize-functions.kql",
+        "slice-09-hover.kql",
+        "slice-10-string-ops.kql",
+        "slice-11-go-to-definition.kql",
+        "slice-12-find-references.kql",
+        "slice-13-join.kql",
+        "slice-14-management-commands.kql",
+        "slice-15-multi-statement.kql",
+        "slice-16-signature-help.kql",
+        "slice-17-code-action.kql",
+        "slice-18-formatting.kql",
+        "slice-19-folding.kql",
+        "slice-20-rename.kql",
+    )
+
+    /** Character offset into app.log recorded before opening example files. */
+    private var logOffsetBeforeTests: Int = 0
 
     /** Helper: execute JS in the IDE and return whether the result equals "true" */
     private fun callJsBool(script: String): Boolean {
         return robot.callJs<String>(script) == "true"
+    }
+
+    /** Read the entire LSP log as a string. */
+    private fun readFullLog(): String {
+        return runCatching {
+            robot.callJs<String>("""
+                importClass(java.nio.file.Files)
+                importClass(java.nio.file.Paths)
+                var logPath = Paths.get("$lspLogPath")
+                if (Files.exists(logPath)) {
+                    new java.lang.String(Files.readAllBytes(logPath))
+                } else {
+                    ""
+                }
+            """.trimIndent())
+        }.getOrDefault("")
+    }
+
+    /** Read only the log content written after [logOffsetBeforeTests]. */
+    private fun readLogSinceOffset(): String {
+        val fullLog = readFullLog()
+        return if (fullLog.length > logOffsetBeforeTests) {
+            fullLog.substring(logOffsetBeforeTests)
+        } else {
+            ""
+        }
+    }
+
+    /** Open a file in the IDE via invokeLater (non-blocking). */
+    private fun openFileInIde(filePath: String) {
+        robot.runJs("""
+            importClass(com.intellij.openapi.project.ProjectManager)
+            importClass(com.intellij.openapi.fileEditor.FileEditorManager)
+            importClass(com.intellij.openapi.vfs.LocalFileSystem)
+            importClass(com.intellij.openapi.application.ApplicationManager)
+
+            var project = ProjectManager.getInstance().getOpenProjects()[0]
+            var vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("$filePath")
+
+            if (vFile != null) {
+                ApplicationManager.getApplication().invokeLater(function() {
+                    FileEditorManager.getInstance(project).openFile(vFile, true)
+                })
+            } else {
+                throw new Error("Could not find file: $filePath")
+            }
+        """.trimIndent())
     }
 
     @BeforeAll
@@ -104,7 +182,7 @@ class LspIntegrationTest {
 
     @Test
     @Order(4)
-    fun `04 - open test file`() {
+    fun `04 - record log offset and wait for project`() {
         // Wait for a project to be available (IDE restores last project on startup)
         println("Waiting for a project to be available...")
         waitFor(Duration.ofMinutes(2), Duration.ofSeconds(3)) {
@@ -117,572 +195,139 @@ class LspIntegrationTest {
         }
         println("Project is available")
 
-        // Open test file via invokeLater (non-blocking to avoid robot-server timeout)
-        println("Opening test file: $testFilePath")
-        robot.runJs("""
-            importClass(com.intellij.openapi.project.ProjectManager)
-            importClass(com.intellij.openapi.fileEditor.FileEditorManager)
-            importClass(com.intellij.openapi.vfs.LocalFileSystem)
-            importClass(com.intellij.openapi.application.ApplicationManager)
-
-            var project = ProjectManager.getInstance().getOpenProjects()[0]
-            var vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("$testFilePath")
-
-            if (vFile != null) {
-                ApplicationManager.getApplication().invokeLater(function() {
-                    FileEditorManager.getInstance(project).openFile(vFile, true)
-                })
-            } else {
-                throw new Error("Could not find file: $testFilePath")
-            }
-        """.trimIndent())
-
-        // Wait for file to appear in editors
-        val fileName = testFilePath.substringAfterLast("/")
-        println("Waiting for $fileName to appear in editors...")
-        waitFor(Duration.ofSeconds(30), Duration.ofSeconds(2)) {
-            runCatching {
-                callJsBool("""
-                    importClass(com.intellij.openapi.project.ProjectManager)
-                    importClass(com.intellij.openapi.fileEditor.FileEditorManager)
-                    var project = ProjectManager.getInstance().getOpenProjects()[0]
-                    var editors = FileEditorManager.getInstance(project).getOpenFiles()
-                    var found = false
-                    for (var i = 0; i < editors.length; i++) {
-                        if (editors[i].getName().equals("$fileName")) {
-                            found = true
-                            break
-                        }
-                    }
-                    "" + found
-                """.trimIndent())
-            }.getOrDefault(false)
-        }
-        println("$fileName is open in the editor")
+        // Record current log length so subsequent tests only check new entries
+        logOffsetBeforeTests = readFullLog().length
+        println("Log offset recorded: $logOffsetBeforeTests chars")
     }
 
     @Test
     @Order(5)
-    fun `05 - verify LSP binary process is running`() {
-        println("Waiting for LSP binary to start...")
-        var lspRunning = false
-        for (attempt in 1..20) {
-            Thread.sleep(3000)
-            lspRunning = runCatching {
-                callJsBool("""
-                    importClass(java.lang.ProcessHandle)
-                    var found = false
-                    var iter = ProcessHandle.allProcesses().iterator()
-                    while (iter.hasNext()) {
-                        var p = iter.next()
-                        var cmd = p.info().command()
-                        if (cmd.isPresent() && cmd.get().contains("$lspBinaryName")) {
-                            found = true
-                            break
-                        }
-                    }
-                    "" + found
-                """.trimIndent())
-            }.getOrDefault(false)
-
-            if (lspRunning) {
-                println("LSP binary process found on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: LSP binary not running yet...")
+    fun `05 - open all 20 example files`() {
+        // Copy example files into the test-project directory so lsp4ij can
+        // see them within its project scope (lsp4ij only sends didOpen for
+        // files that belong to the open project).
+        println("Copying ${exampleFiles.size} example files into test-project...")
+        for (file in exampleFiles) {
+            robot.runJs("""
+                importClass(java.nio.file.Files)
+                importClass(java.nio.file.Paths)
+                importClass(java.nio.file.StandardCopyOption)
+                var src = Paths.get("$examplesSource/$file")
+                var dst = Paths.get("$testProjectDir/$file")
+                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING)
+            """.trimIndent())
         }
-        assertTrue(lspRunning, "LSP binary process '$lspBinaryName' should be running after opening a .kql file")
+        // Refresh the VFS so IntelliJ sees the new files
+        robot.runJs("""
+            importClass(com.intellij.openapi.vfs.LocalFileSystem)
+            importClass(java.io.File)
+            LocalFileSystem.getInstance().refreshIoFiles(
+                java.util.Collections.singletonList(new File("$testProjectDir")),
+                false, true, null
+            )
+        """.trimIndent())
+        Thread.sleep(2000) // Give lsp4ij time to notice the new files
+        println("Files copied and VFS refreshed. Now opening them in the IDE...")
+
+        for ((index, file) in exampleFiles.withIndex()) {
+            val filePath = "$testProjectDir/$file"
+            println("  [${index + 1}/${exampleFiles.size}] Opening $file")
+            runCatching { openFileInIde(filePath) }
+                .onFailure { println("    WARNING: Failed to open $file: ${it.message}") }
+            Thread.sleep(500)
+        }
+
+        // Wait for the last file to appear in the LSP log
+        val lastFile = exampleFiles.last()
+        println("Waiting for LSP to process last file ($lastFile)...")
+        waitFor(Duration.ofMinutes(3), Duration.ofSeconds(3)) {
+            val log = readLogSinceOffset()
+            log.contains(lastFile)
+        }
+        println("All example files opened and last file processed by LSP")
     }
 
     @Test
     @Order(6)
-    fun `06 - verify LSP responded to initialize`() {
-        println("Checking LSP log for initialization...")
-        var logContent = ""
-        for (attempt in 1..15) {
-            Thread.sleep(2000)
-            logContent = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
-                    }
-                """.trimIndent())
-            }.getOrDefault("")
+    fun `06 - verify LSP processed all 20 files`() {
+        val log = readLogSinceOffset()
+        println("Checking LSP log for all ${exampleFiles.size} files...")
 
-            if (logContent.contains("connected to client")) {
-                println("LSP initialized on attempt $attempt!")
-                break
+        val missingFiles = mutableListOf<String>()
+        for (file in exampleFiles) {
+            if (!log.contains(file)) {
+                missingFiles.add(file)
             }
-            println("Attempt $attempt: LSP log: ${logContent.take(200)}")
         }
-        println("LSP log:\n$logContent")
-        assertTrue(logContent.contains("connected to client"),
-            "LSP log should show successful client connection. Log content: $logContent")
+
+        if (missingFiles.isEmpty()) {
+            println("All ${exampleFiles.size} example files were processed by the LSP")
+        } else {
+            println("Missing files in log: $missingFiles")
+            println("Log since offset (first 3000 chars):\n${log.take(3000)}")
+        }
+
+        assertTrue(missingFiles.isEmpty(),
+            "LSP should have processed all example files. Missing: $missingFiles")
     }
 
     @Test
     @Order(7)
-    fun `07 - verify LSP received didOpen`() {
-        println("Checking LSP log for didOpen...")
-        var logContent = ""
-        for (attempt in 1..10) {
-            Thread.sleep(2000)
-            logContent = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
-                    }
-                """.trimIndent())
-            }.getOrDefault("")
+    fun `07 - verify no LSP errors in log`() {
+        val log = readLogSinceOffset()
+        val errorLines = log.lines().filter { it.contains(" ERROR ") }
 
-            if (logContent.contains("textDocument/didOpen") || logContent.contains("Opened:")) {
-                println("LSP processed didOpen on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: waiting for didOpen in log...")
+        if (errorLines.isEmpty()) {
+            println("No ERROR entries in LSP log — all files processed cleanly")
+        } else {
+            println("Found ${errorLines.size} ERROR entries:")
+            errorLines.forEach { println("  $it") }
         }
-        println("LSP log:\n$logContent")
-        assertTrue(logContent.contains("Opened:") || logContent.contains("textDocument/didOpen"),
-            "LSP should have received didOpen notification. Log: $logContent")
+
+        assertTrue(errorLines.isEmpty(),
+            "LSP log should contain no ERROR entries after processing all example files. " +
+            "Errors found:\n${errorLines.joinToString("\n")}")
     }
 
     @Test
     @Order(8)
-    fun `08 - verify LSP stored document with correct content`() {
-        // Verify the LSP log shows the document was stored in the rope
-        // by checking the byte count matches the actual file content
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
+    fun `08 - verify semantic tokens handled for all files`() {
+        val log = readLogSinceOffset()
+        val semanticTokenCount = log.lines().count { it.contains("semanticTokens/full") }
 
-        println("Verifying document store logged correct byte count...")
+        println("Found $semanticTokenCount semanticTokens/full requests in log")
 
-        // The Opened: log line includes byte count, proving the rope stored the content
-        val openedPattern = Regex("""Opened:.*test\.kql.*\(version \d+, (\d+) bytes\)""")
-        val match = openedPattern.find(logContent)
-        assertTrue(match != null, "LSP should log document open with byte count. Log: ${logContent.takeLast(500)}")
-
-        val byteCount = match!!.groupValues[1].toInt()
-        println("LSP stored document with $byteCount bytes")
-        assertTrue(byteCount > 0, "Document should have non-zero byte count (rope stored content)")
-
-        // Verify the actual file content length matches
-        val actualContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            new java.lang.String(Files.readAllBytes(Paths.get("$testFilePath")))
-        """.trimIndent())
-        println("Actual file: ${actualContent.length} chars, LSP reported: $byteCount bytes")
-        assertTrue(byteCount > 50, "Document should have substantial content stored in rope (got $byteCount bytes)")
+        // lsp4ij requests semanticTokens/full at least once per file open
+        assertTrue(semanticTokenCount >= exampleFiles.size,
+            "Expected at least ${exampleFiles.size} semanticTokens/full requests " +
+            "(one per file), got $semanticTokenCount. " +
+            "This may indicate a crash during semantic token computation (e.g., CRLF bug).")
     }
 
     @Test
     @Order(9)
-    fun `09 - verify valid KQL produces no error diagnostics`() {
-        // The test.kql file has valid KQL - verify it's processed without parser errors
-        // We check the LSP log for the diagnostics publication
-        println("Checking that valid KQL produces no error diagnostics...")
+    fun `09 - verify LSP process still running`() {
+        println("Checking LSP binary is still alive after processing all files...")
 
-        // Read the LSP log and verify the diagnostics notification for test.kql has empty array
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-
-        // The valid file was opened and should have been parsed.
-        // Since test.kql has valid KQL, there should be no parse errors logged
-        assertTrue(logContent.contains("Opened:"), "LSP should have processed the file")
-        println("Valid KQL file processed successfully (test.kql)")
-    }
-
-    @Test
-    @Order(10)
-    fun `10 - verify invalid KQL produces error diagnostics`() {
-        // Create a file with invalid KQL and open it to trigger diagnostics
-        val invalidFilePath = "C:/Users/Russell/git/kql-lsp/intellij/test-project/invalid.kql"
-        println("Creating invalid KQL file: $invalidFilePath")
-
-        // Write invalid KQL to a file
-        robot.runJs("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            Files.write(Paths.get("$invalidFilePath"), java.util.Arrays.asList("StormEvents | where"))
-        """.trimIndent())
-
-        // Open the invalid file
-        robot.runJs("""
-            importClass(com.intellij.openapi.project.ProjectManager)
-            importClass(com.intellij.openapi.fileEditor.FileEditorManager)
-            importClass(com.intellij.openapi.vfs.LocalFileSystem)
-            importClass(com.intellij.openapi.application.ApplicationManager)
-
-            var project = ProjectManager.getInstance().getOpenProjects()[0]
-            var vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("$invalidFilePath")
-
-            if (vFile != null) {
-                ApplicationManager.getApplication().invokeLater(function() {
-                    FileEditorManager.getInstance(project).openFile(vFile, true)
-                })
-            } else {
-                throw new Error("Could not find file: $invalidFilePath")
-            }
-        """.trimIndent())
-
-        // Wait for the file to be opened and LSP to process it
-        println("Waiting for LSP to process invalid KQL file...")
-        var logContent = ""
-        for (attempt in 1..15) {
-            Thread.sleep(2000)
-            logContent = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
+        val lspRunning = runCatching {
+            callJsBool("""
+                importClass(java.lang.ProcessHandle)
+                var found = false
+                var iter = ProcessHandle.allProcesses().iterator()
+                while (iter.hasNext()) {
+                    var p = iter.next()
+                    var cmd = p.info().command()
+                    if (cmd.isPresent() && cmd.get().contains("$lspBinaryName")) {
+                        found = true
+                        break
                     }
-                """.trimIndent())
-            }.getOrDefault("")
-
-            // Look for the invalid file being opened
-            if (logContent.contains("invalid.kql")) {
-                println("LSP processed invalid.kql on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: waiting for invalid.kql processing...")
-        }
-
-        println("LSP log (last 500 chars):\n${logContent.takeLast(500)}")
-        assertTrue(logContent.contains("invalid.kql"),
-            "LSP should have processed the invalid KQL file. Log: ${logContent.takeLast(500)}")
-
-        // Clean up the invalid file
-        runCatching {
-            robot.runJs("""
-                importClass(java.nio.file.Files)
-                importClass(java.nio.file.Paths)
-                Files.deleteIfExists(Paths.get("$invalidFilePath"))
+                }
+                "" + found
             """.trimIndent())
-        }
-    }
+        }.getOrDefault(false)
 
-    @Test
-    @Order(11)
-    fun `11 - verify documentSymbol capability is advertised and handled`() {
-        // Verify the LSP is running with documentSymbolProvider capability
-        // lsp4ij may or may not auto-request documentSymbol
-        println("Checking for documentSymbol support...")
-
-        var foundDocSymbol = false
-        for (attempt in 1..10) {
-            Thread.sleep(2000)
-            val log = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
-                    }
-                """.trimIndent())
-            }.getOrDefault("")
-
-            if (log.contains("textDocument/documentSymbol")) {
-                foundDocSymbol = true
-                println("LSP received documentSymbol request on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: waiting for documentSymbol request...")
-        }
-
-        if (foundDocSymbol) {
-            println("Document symbols feature verified via LSP log")
-        } else {
-            println("lsp4ij did not auto-request documentSymbol - verifying capability is advertised")
-        }
-
-        // Verify the LSP is initialized (capability is included in initialize response)
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with documentSymbolProvider capability")
-    }
-
-    @Test
-    @Order(12)
-    fun `12 - verify hover capability is registered`() {
-        // Verify the LSP handles hover requests
-        println("Checking for hover support...")
-
-        var foundHover = false
-        for (attempt in 1..10) {
-            Thread.sleep(2000)
-            val log = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
-                    }
-                """.trimIndent())
-            }.getOrDefault("")
-
-            if (log.contains("textDocument/hover")) {
-                foundHover = true
-                println("LSP received hover request on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: waiting for hover request...")
-        }
-
-        if (foundHover) {
-            println("Hover feature verified via LSP log")
-        } else {
-            println("lsp4ij did not auto-request hover - capability is advertised in initialize")
-        }
-
-        // Verify initialization succeeded (hoverProvider is included in initialize response)
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with hoverProvider capability")
-    }
-
-    @Test
-    @Order(13)
-    fun `13 - verify completion capability is registered`() {
-        // Verify the LSP handles completion requests (check log for method)
-        println("Checking for completion support...")
-
-        var foundCompletion = false
-        for (attempt in 1..10) {
-            Thread.sleep(2000)
-            val log = runCatching {
-                robot.callJs<String>("""
-                    importClass(java.nio.file.Files)
-                    importClass(java.nio.file.Paths)
-                    var logPath = Paths.get("$lspLogPath")
-                    if (Files.exists(logPath)) {
-                        new java.lang.String(Files.readAllBytes(logPath))
-                    } else {
-                        "LOG_NOT_FOUND"
-                    }
-                """.trimIndent())
-            }.getOrDefault("")
-
-            if (log.contains("textDocument/completion")) {
-                foundCompletion = true
-                println("LSP received completion request on attempt $attempt!")
-                break
-            }
-            println("Attempt $attempt: waiting for completion request...")
-        }
-
-        if (foundCompletion) {
-            println("Completion feature verified via LSP log")
-        } else {
-            println("lsp4ij did not auto-request completion - capability is advertised in initialize")
-        }
-
-        // Verify initialization includes completionProvider
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with completionProvider capability")
-    }
-
-    @Test
-    @Order(14)
-    fun `14 - verify definition capability is registered`() {
-        // Verify the LSP advertises definitionProvider
-        println("Checking for definition support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with definitionProvider capability")
-        println("Definition capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(15)
-    fun `15 - verify references capability is registered`() {
-        println("Checking for references support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with referencesProvider capability")
-        println("References capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(16)
-    fun `16 - verify signatureHelp capability is registered`() {
-        println("Checking for signatureHelp support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with signatureHelpProvider capability")
-        println("SignatureHelp capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(17)
-    fun `17 - verify rename capability is registered`() {
-        println("Checking for rename support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with renameProvider capability")
-        println("Rename capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(18)
-    fun `18 - verify codeAction capability is registered`() {
-        println("Checking for codeAction support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with codeActionProvider capability")
-        println("CodeAction capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(19)
-    fun `19 - verify formatting capability is registered`() {
-        println("Checking for formatting support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with documentFormattingProvider capability")
-        println("Formatting capability verified via LSP initialization")
-    }
-
-    @Test
-    @Order(20)
-    fun `20 - verify foldingRange capability is registered`() {
-        println("Checking for foldingRange support...")
-
-        val logContent = robot.callJs<String>("""
-            importClass(java.nio.file.Files)
-            importClass(java.nio.file.Paths)
-            var logPath = Paths.get("$lspLogPath")
-            if (Files.exists(logPath)) {
-                new java.lang.String(Files.readAllBytes(logPath))
-            } else {
-                "LOG_NOT_FOUND"
-            }
-        """.trimIndent())
-        assertTrue(logContent.contains("connected to client"),
-            "LSP should be initialized with foldingRangeProvider capability")
-        println("FoldingRange capability verified via LSP initialization")
+        println("LSP binary running: $lspRunning")
+        assertTrue(lspRunning,
+            "LSP binary '$lspBinaryName' should still be running after processing all 20 example files")
     }
 }
