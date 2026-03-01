@@ -223,15 +223,20 @@ fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]
         .and_then(|l| l.as_str())
         .unwrap_or("kql");
 
+    // Normalize \r\n to \n — IntelliJ's document model uses \n only,
+    // and lsp4ij applies our byte-based semantic token positions to its
+    // normalized document. If we keep \r bytes, positions will overshoot.
+    let text = text.replace('\r', "");
+
     info!("Opened: {} (version {}, {} bytes)", uri_str, version, text.len());
 
     // Store document in rope-backed document store
     if let Ok(uri) = Uri::from_str(uri_str) {
-        state.documents.open(uri, version, text, language_id);
+        state.documents.open(uri, version, &text, language_id);
     }
 
     // Parse and publish diagnostics
-    publish_diagnostics(writer, uri_str, text);
+    publish_diagnostics(writer, uri_str, &text);
 }
 
 fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
@@ -268,15 +273,18 @@ fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
         .and_then(|t| t.as_str())
         .unwrap_or("");
 
+    // Normalize \r\n to \n (see didOpen comment)
+    let new_text = new_text.replace('\r', "");
+
     info!("Changed: {} (version {}, {} bytes)", uri_str, version, new_text.len());
 
     // Update rope-backed document
     if let Ok(uri) = Uri::from_str(uri_str) {
-        state.documents.change_full(&uri, version, new_text);
+        state.documents.change_full(&uri, version, &new_text);
     }
 
     // Parse and publish diagnostics
-    publish_diagnostics(writer, uri_str, new_text);
+    publish_diagnostics(writer, uri_str, &new_text);
 }
 
 fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {

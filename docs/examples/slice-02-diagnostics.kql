@@ -8,7 +8,7 @@ StormEvents | take 10
 StormEvents | where DamageProperty > 100
 
 // ERROR — incomplete where clause (try this to see a diagnostic):
-// StormEvents | where
+StormEvents | where
 
 // ERROR — missing right-hand side:
 // StormEvents | where X >

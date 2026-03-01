@@ -38,6 +38,9 @@ describe("KQL diagnostics", function()
     for _, d in ipairs(diagnostics) do
       if d.severity == vim.diagnostic.severity.ERROR then
         has_error = true
+        -- Verify the diagnostic is near 'where' keyword (col ~14-19), not at end of file
+        -- 'StormEvents | where' : 'where' ends at col 19
+        assert.is_true(d.col <= 19, "Diagnostic should be near 'where' keyword, not at end of file (col=" .. d.col .. ")")
         break
       end
     end

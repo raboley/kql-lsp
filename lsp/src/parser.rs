@@ -122,6 +122,15 @@ impl<'a> Parser<'a> {
         });
     }
 
+    /// Report an error at an explicit byte offset (for better error positioning).
+    fn error_at(&mut self, message: &str, offset: usize, len: usize) {
+        self.errors.push(ParseError {
+            message: message.to_string(),
+            offset,
+            len: len.max(1),
+        });
+    }
+
     fn error_recover(&mut self, message: &str) {
         self.error_at_current(message);
         self.builder.start_node(SyntaxKind::ErrorNode.into());
@@ -312,12 +321,14 @@ impl<'a> Parser<'a> {
     fn parse_where_clause(&mut self) {
         self.builder.start_node(SyntaxKind::WhereClause.into());
 
+        let where_end = self.offset + self.current_token().map_or(0, |t| t.len);
         self.bump(); // where keyword
         self.skip_trivia();
 
         // Parse the predicate expression
         if self.at_eof_or_pipe() {
-            self.error_at_current("expected expression after 'where'");
+            // Report error at the 'where' keyword, not at EOF after trivia
+            self.error_at("expected expression after 'where'", where_end, 1);
         } else {
             self.parse_expression();
         }
