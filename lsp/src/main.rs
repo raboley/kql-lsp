@@ -329,7 +329,7 @@ fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]
     }
 
     // Parse and publish diagnostics
-    publish_diagnostics(writer, uri_str, &text);
+    publish_diagnostics(writer, uri_str, &text, &state.schema);
 }
 
 fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
@@ -364,7 +364,7 @@ fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     }
 
     // Parse and publish diagnostics
-    publish_diagnostics(writer, uri_str, &new_text);
+    publish_diagnostics(writer, uri_str, &new_text, &state.schema);
 }
 
 fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
@@ -377,21 +377,29 @@ fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
     }
 }
 
-fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {
+fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str, schema: &schema::SchemaStore) {
     let parse_result = parser::parse(text);
     let rope = ropey::Rope::from_str(text);
-    let lsp_diagnostics = diagnostics::parse_errors_to_diagnostics(&parse_result.errors, &rope);
+    let mut all_diagnostics = diagnostics::parse_errors_to_diagnostics(&parse_result.errors, &rope);
+    all_diagnostics.extend(diagnostics::schema_diagnostics(text, schema, &rope));
 
-    let diags_json: Vec<Value> = lsp_diagnostics
+    let diags_json: Vec<Value> = all_diagnostics
         .iter()
         .map(|d| {
+            let severity = match d.severity {
+                Some(lsp_types::DiagnosticSeverity::ERROR) => 1,
+                Some(lsp_types::DiagnosticSeverity::WARNING) => 2,
+                Some(lsp_types::DiagnosticSeverity::INFORMATION) => 3,
+                Some(lsp_types::DiagnosticSeverity::HINT) => 4,
+                _ => 1,
+            };
             serde_json::json!({
                 "range": {
                     "start": { "line": d.range.start.line, "character": d.range.start.character },
                     "end": { "line": d.range.end.line, "character": d.range.end.character }
                 },
-                "severity": 1, // Error
-                "source": "kql",
+                "severity": severity,
+                "source": d.source,
                 "message": d.message
             })
         })

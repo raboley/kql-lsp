@@ -1,0 +1,11 @@
+// Slice 24: Schema-aware diagnostics
+// Unknown tables and columns produce warnings (static schema) or errors (live).
+StormEvents
+| where State == "TEXAS"
+| take 10
+
+NonExistentTable
+| take 5
+
+StormEvents
+| where FakeColumn > 100
