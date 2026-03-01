@@ -112,4 +112,5 @@ impl rowan::Language for KqlLanguage {
 }
 
 pub type SyntaxNode = rowan::SyntaxNode<KqlLanguage>;
+#[allow(dead_code)]
 pub type SyntaxToken = rowan::SyntaxToken<KqlLanguage>;

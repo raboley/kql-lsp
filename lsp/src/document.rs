@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 /// A single open document backed by a Rope.
 pub struct Document {
-    pub uri: Uri,
+    pub _uri: Uri,
     pub version: i32,
     pub rope: Rope,
-    pub language_id: String,
+    pub _language_id: String,
 }
 
 /// Manages all open documents.
@@ -24,10 +24,10 @@ impl DocumentStore {
 
     pub fn open(&mut self, uri: Uri, version: i32, text: &str, language_id: &str) {
         let doc = Document {
-            uri: uri.clone(),
+            _uri: uri.clone(),
             version,
             rope: Rope::from_str(text),
-            language_id: language_id.to_string(),
+            _language_id: language_id.to_string(),
         };
         self.documents.insert(uri, doc);
     }
@@ -105,7 +105,7 @@ mod tests {
         let doc = store.get(&uri).unwrap();
         assert_eq!(doc.version, 1);
         assert_eq!(doc.rope.to_string(), "StormEvents | take 10");
-        assert_eq!(doc.language_id, "kql");
+        assert_eq!(doc._language_id, "kql");
     }
 
     #[test]

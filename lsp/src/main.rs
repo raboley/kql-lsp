@@ -1,3 +1,4 @@
+mod catalog;
 mod code_actions;
 mod completion;
 mod definition;
@@ -70,6 +71,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Shared helpers to reduce boilerplate across handlers
+// ---------------------------------------------------------------------------
+
+/// Parse a JSON-RPC message, logging an error on failure.
+fn parse_request(msg: &[u8], method: &str) -> Option<Value> {
+    match serde_json::from_slice(msg) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            error!("couldn't parse {}: {}", method, e);
+            None
+        }
+    }
+}
+
+/// Extract the JSON-RPC request ID (handles both string and numeric IDs).
+fn get_request_id(req: &Value) -> Value {
+    req.get("id").cloned().unwrap_or(Value::Number(0.into()))
+}
+
+/// Extract the textDocument URI string from request params.
+fn get_uri_str<'a>(req: &'a Value) -> &'a str {
+    req.get("params")
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|td| td.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("unknown")
+}
+
+/// Extract cursor position from request params.
+fn get_position(req: &Value) -> lsp_types::Position {
+    let position = req.get("params").and_then(|p| p.get("position"));
+    let line = position
+        .and_then(|p| p.get("line"))
+        .and_then(|l| l.as_u64())
+        .unwrap_or(0) as u32;
+    let character = position
+        .and_then(|p| p.get("character"))
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0) as u32;
+    lsp_types::Position { line, character }
+}
+
+/// Get document text from the store by URI string.
+fn get_document_text(state: &ServerState, uri_str: &str) -> String {
+    if let Ok(uri) = Uri::from_str(uri_str) {
+        state
+            .documents
+            .get(&uri)
+            .map(|doc| doc.rope.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    }
+}
+
+/// Build a JSON-RPC response with a result value.
+fn make_response(id: Value, result: Value) -> Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result
+    })
+}
+
+/// Convert byte offsets to an LSP range JSON value.
+fn lsp_range_json(rope: &ropey::Rope, start: usize, end: usize) -> Value {
+    let start_pos = document::DocumentStore::offset_to_position(rope, start);
+    let end_pos = document::DocumentStore::offset_to_position(rope, end);
+    serde_json::json!({
+        "start": { "line": start_pos.line, "character": start_pos.character },
+        "end": { "line": end_pos.line, "character": end_pos.character }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Message dispatch
+// ---------------------------------------------------------------------------
+
 fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &str, msg: &[u8]) {
     info!("Received msg with method: {}", method);
 
@@ -102,17 +182,13 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
     }
 }
 
-fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[u8]) {
-    // Parse the request to get the ID (handles both string and numeric IDs)
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse initialize request: {}", e);
-            return;
-        }
-    };
+// ---------------------------------------------------------------------------
+// Handler implementations
+// ---------------------------------------------------------------------------
 
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[u8]) {
+    let req = match parse_request(msg, "initialize") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
 
     if let Some(client_info) = req.get("params").and_then(|p| p.get("clientInfo")) {
         let name = client_info.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
@@ -120,88 +196,58 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
         info!("connected to client: {}, version: {}", name, version);
     }
 
-    // Build semantic token types legend
     let token_types: Vec<&str> = semantic_tokens::TOKEN_TYPES.to_vec();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": {
-            "capabilities": {
-                "textDocumentSync": 1,
-                "diagnosticProvider": {
-                    "interFileDependencies": false,
-                    "workspaceDiagnostics": false
-                },
-                "completionProvider": {
-                    "triggerCharacters": ["|", " "]
-                },
-                "signatureHelpProvider": {
-                    "triggerCharacters": ["(", ","]
-                },
-                "hoverProvider": true,
-                "definitionProvider": true,
-                "referencesProvider": true,
-                "renameProvider": true,
-                "codeActionProvider": true,
-                "documentFormattingProvider": true,
-                "foldingRangeProvider": true,
-                "documentSymbolProvider": true,
-                "semanticTokensProvider": {
-                    "legend": {
-                        "tokenTypes": token_types,
-                        "tokenModifiers": []
-                    },
-                    "full": true
-                }
+    let response = make_response(id, serde_json::json!({
+        "capabilities": {
+            "textDocumentSync": 1,
+            "diagnosticProvider": {
+                "interFileDependencies": false,
+                "workspaceDiagnostics": false
             },
-            "serverInfo": {
-                "name": "kql-lsp",
-                "version": "0.1.0"
+            "completionProvider": {
+                "triggerCharacters": ["|", " "]
+            },
+            "signatureHelpProvider": {
+                "triggerCharacters": ["(", ","]
+            },
+            "hoverProvider": true,
+            "definitionProvider": true,
+            "referencesProvider": true,
+            "renameProvider": true,
+            "codeActionProvider": true,
+            "documentFormattingProvider": true,
+            "foldingRangeProvider": true,
+            "documentSymbolProvider": true,
+            "semanticTokensProvider": {
+                "legend": {
+                    "tokenTypes": token_types,
+                    "tokenModifiers": []
+                },
+                "full": true
             }
+        },
+        "serverInfo": {
+            "name": "kql-lsp",
+            "version": "0.1.0"
         }
-    });
+    }));
 
     rpc::write_response(writer, &response, "initialize");
 }
 
 fn handle_shutdown<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse shutdown request: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
+    let req = match parse_request(msg, "shutdown") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
     state.shutdown_requested = true;
     info!("Shutdown requested");
-
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": null
-    });
-
-    rpc::write_response(writer, &response, "shutdown");
+    rpc::write_response(writer, &make_response(id, Value::Null), "shutdown");
 }
 
 fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/didOpen: {}", e);
-            return;
-        }
-    };
+    let req = match parse_request(msg, "textDocument/didOpen") { Some(r) => r, None => return };
 
-    let params = match req.get("params") {
-        Some(p) => p,
-        None => return,
-    };
-
-    let text_document = match params.get("textDocument") {
+    let text_document = match req.get("params").and_then(|p| p.get("textDocument")) {
         Some(td) => td,
         None => return,
     };
@@ -240,33 +286,20 @@ fn handle_did_open<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]
 }
 
 fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/didChange: {}", e);
-            return;
-        }
-    };
+    let req = match parse_request(msg, "textDocument/didChange") { Some(r) => r, None => return };
 
-    let params = match req.get("params") {
-        Some(p) => p,
-        None => return,
-    };
-
-    let uri_str = params
-        .get("textDocument")
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-    let version = params
-        .get("textDocument")
+    let uri_str = get_uri_str(&req);
+    let version = req
+        .get("params")
+        .and_then(|p| p.get("textDocument"))
         .and_then(|td| td.get("version"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
 
     // For full sync (textDocumentSync: 1), the full text is in contentChanges[0].text
-    let new_text = params
-        .get("contentChanges")
+    let new_text = req
+        .get("params")
+        .and_then(|p| p.get("contentChanges"))
         .and_then(|cc| cc.as_array())
         .and_then(|arr| arr.first())
         .and_then(|change| change.get("text"))
@@ -287,13 +320,22 @@ fn handle_did_change<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     publish_diagnostics(writer, uri_str, &new_text);
 }
 
+fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
+    let req = match parse_request(msg, "textDocument/didClose") { Some(r) => r, None => return };
+    let uri_str = get_uri_str(&req);
+    info!("Closed: {}", uri_str);
+
+    if let Ok(uri) = Uri::from_str(uri_str) {
+        state.documents.close(&uri);
+    }
+}
+
 fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {
     let parse_result = parser::parse(text);
     let rope = ropey::Rope::from_str(text);
     let lsp_diagnostics = diagnostics::parse_errors_to_diagnostics(&parse_result.errors, &rope);
 
-    // Convert to JSON
-    let diags_json: Vec<serde_json::Value> = lsp_diagnostics
+    let diags_json: Vec<Value> = lsp_diagnostics
         .iter()
         .map(|d| {
             serde_json::json!({
@@ -321,74 +363,19 @@ fn publish_diagnostics<W: Write>(writer: &mut W, uri_str: &str, text: &str) {
 }
 
 fn handle_semantic_tokens<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse semanticTokens/full: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    // Get document text from store
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "semanticTokens/full") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let data = semantic_tokens::compute_semantic_tokens(&text);
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": {
-            "data": data
-        }
-    });
-
-    rpc::write_response(writer, &response, "semanticTokens/full");
+    rpc::write_response(writer, &make_response(id, serde_json::json!({ "data": data })), "semanticTokens/full");
 }
 
 fn handle_document_symbols<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/documentSymbol: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/documentSymbol") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let parse_result = parser::parse(&text);
     let doc_symbols = symbols::extract_symbols(&parse_result);
@@ -397,80 +384,26 @@ fn handle_document_symbols<W: Write>(writer: &mut W, state: &mut ServerState, ms
     let lsp_symbols: Vec<Value> = doc_symbols
         .iter()
         .map(|s| {
-            let range_start = document::DocumentStore::offset_to_position(&rope, s.range_start);
-            let range_end = document::DocumentStore::offset_to_position(&rope, s.range_end);
-            let sel_start = document::DocumentStore::offset_to_position(&rope, s.selection_start);
-            let sel_end = document::DocumentStore::offset_to_position(&rope, s.selection_end);
-
             serde_json::json!({
                 "name": s.name,
                 "kind": s.kind,
-                "range": {
-                    "start": { "line": range_start.line, "character": range_start.character },
-                    "end": { "line": range_end.line, "character": range_end.character }
-                },
-                "selectionRange": {
-                    "start": { "line": sel_start.line, "character": sel_start.character },
-                    "end": { "line": sel_end.line, "character": sel_end.character }
-                }
+                "range": lsp_range_json(&rope, s.range_start, s.range_end),
+                "selectionRange": lsp_range_json(&rope, s.selection_start, s.selection_end)
             })
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_symbols
-    });
-
-    rpc::write_response(writer, &response, "textDocument/documentSymbol");
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_symbols)), "textDocument/documentSymbol");
 }
 
 fn handle_completion<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/completion: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req
-        .get("params")
-        .and_then(|p| p.get("position"));
-
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/completion") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let pos = get_position(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
-
     let items = completion::complete_at(&text, offset);
 
     let lsp_items: Vec<Value> = items
@@ -487,407 +420,156 @@ fn handle_completion<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_items
-    });
-
-    rpc::write_response(writer, &response, "textDocument/completion");
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_items)), "textDocument/completion");
 }
 
 fn handle_hover<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/hover: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req
-        .get("params")
-        .and_then(|p| p.get("position"));
-
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/hover") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let pos = get_position(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
 
-    let response = if let Some(hover_result) = hover::hover_at(&text, offset) {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "contents": {
-                    "kind": "markdown",
-                    "value": hover_result.markdown
-                }
+    let result = match hover::hover_at(&text, offset) {
+        Some(hover_result) => serde_json::json!({
+            "contents": {
+                "kind": "markdown",
+                "value": hover_result.markdown
             }
-        })
-    } else {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": null
-        })
+        }),
+        None => Value::Null,
     };
 
-    rpc::write_response(writer, &response, "textDocument/hover");
+    rpc::write_response(writer, &make_response(id, result), "textDocument/hover");
 }
 
 fn handle_definition<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/definition: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req.get("params").and_then(|p| p.get("position"));
-
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/definition") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let uri_str = get_uri_str(&req);
+    let pos = get_position(&req);
+    let text = get_document_text(state, uri_str);
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
 
-    let response = if let Some(def) = definition::find_definition(&text, offset) {
-        let start = document::DocumentStore::offset_to_position(&rope, def.name_start);
-        let end = document::DocumentStore::offset_to_position(&rope, def.name_end);
-        let range_start = document::DocumentStore::offset_to_position(&rope, def.range_start);
-        let range_end = document::DocumentStore::offset_to_position(&rope, def.range_end);
-
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "uri": uri_str,
-                "range": {
-                    "start": { "line": range_start.line, "character": range_start.character },
-                    "end": { "line": range_end.line, "character": range_end.character }
-                }
-            }
-        })
-    } else {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": null
-        })
+    let result = match definition::find_definition(&text, offset) {
+        Some(def) => serde_json::json!({
+            "uri": uri_str,
+            "range": lsp_range_json(&rope, def.range_start, def.range_end)
+        }),
+        None => Value::Null,
     };
 
-    rpc::write_response(writer, &response, "textDocument/definition");
+    rpc::write_response(writer, &make_response(id, result), "textDocument/definition");
 }
 
 fn handle_references<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/references: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req.get("params").and_then(|p| p.get("position"));
-
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/references") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let uri_str = get_uri_str(&req);
+    let pos = get_position(&req);
+    let text = get_document_text(state, uri_str);
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
-
     let refs = references::find_references(&text, offset);
 
     let lsp_locations: Vec<Value> = refs
         .iter()
         .map(|r| {
-            let start = document::DocumentStore::offset_to_position(&rope, r.offset);
-            let end = document::DocumentStore::offset_to_position(&rope, r.offset + r.len);
             serde_json::json!({
                 "uri": uri_str,
-                "range": {
-                    "start": { "line": start.line, "character": start.character },
-                    "end": { "line": end.line, "character": end.character }
-                }
+                "range": lsp_range_json(&rope, r.offset, r.offset + r.len)
             })
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_locations
-    });
-
-    rpc::write_response(writer, &response, "textDocument/references");
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_locations)), "textDocument/references");
 }
 
 fn handle_signature_help<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/signatureHelp: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req.get("params").and_then(|p| p.get("position"));
-
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/signatureHelp") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let pos = get_position(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
 
-    let response = if let Some(help) = signature_help::signature_help_at(&text, offset) {
-        let params: Vec<Value> = help
-            .signature
-            .parameters
-            .iter()
-            .map(|p| {
-                serde_json::json!({
-                    "label": p.label
-                })
-            })
-            .collect();
+    let result = match signature_help::signature_help_at(&text, offset) {
+        Some(help) => {
+            let params: Vec<Value> = help
+                .function
+                .parameters
+                .iter()
+                .map(|p| serde_json::json!({ "label": p.label }))
+                .collect();
 
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
+            serde_json::json!({
                 "signatures": [{
-                    "label": help.signature.label,
-                    "documentation": help.signature.documentation,
+                    "label": help.function.signature,
+                    "documentation": help.function.description,
                     "parameters": params
                 }],
                 "activeSignature": 0,
                 "activeParameter": help.active_parameter
-            }
-        })
-    } else {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": null
-        })
+            })
+        }
+        None => Value::Null,
     };
 
-    rpc::write_response(writer, &response, "textDocument/signatureHelp");
+    rpc::write_response(writer, &make_response(id, result), "textDocument/signatureHelp");
 }
 
 fn handle_rename<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/rename: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let position = req.get("params").and_then(|p| p.get("position"));
+    let req = match parse_request(msg, "textDocument/rename") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let uri_str = get_uri_str(&req);
+    let pos = get_position(&req);
     let new_name = req
         .get("params")
         .and_then(|p| p.get("newName"))
         .and_then(|n| n.as_str())
         .unwrap_or("");
 
-    let line = position
-        .and_then(|p| p.get("line"))
-        .and_then(|l| l.as_u64())
-        .unwrap_or(0) as u32;
-    let character = position
-        .and_then(|p| p.get("character"))
-        .and_then(|c| c.as_u64())
-        .unwrap_or(0) as u32;
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let text = get_document_text(state, uri_str);
 
     let rope = ropey::Rope::from_str(&text);
-    let pos = lsp_types::Position { line, character };
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
-
     let refs = references::find_references(&text, offset);
 
-    let response = if refs.is_empty() {
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": null
-        })
+    let result = if refs.is_empty() {
+        Value::Null
     } else {
         let edits: Vec<Value> = refs
             .iter()
             .map(|r| {
-                let start = document::DocumentStore::offset_to_position(&rope, r.offset);
-                let end = document::DocumentStore::offset_to_position(&rope, r.offset + r.len);
                 serde_json::json!({
-                    "range": {
-                        "start": { "line": start.line, "character": start.character },
-                        "end": { "line": end.line, "character": end.character }
-                    },
+                    "range": lsp_range_json(&rope, r.offset, r.offset + r.len),
                     "newText": new_name
                 })
             })
             .collect();
 
         serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "changes": {
-                    uri_str: edits
-                }
+            "changes": {
+                uri_str: edits
             }
         })
     };
 
-    rpc::write_response(writer, &response, "textDocument/rename");
+    rpc::write_response(writer, &make_response(id, result), "textDocument/rename");
 }
 
 fn handle_code_action<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/codeAction: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
+    let req = match parse_request(msg, "textDocument/codeAction") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let uri_str = get_uri_str(&req);
 
     let range = req.get("params").and_then(|p| p.get("range"));
-
     let start_line = range
         .and_then(|r| r.get("start"))
         .and_then(|s| s.get("line"))
@@ -909,15 +591,7 @@ fn handle_code_action<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[
         .and_then(|c| c.as_u64())
         .unwrap_or(0) as u32;
 
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let text = get_document_text(state, uri_str);
 
     let rope = ropey::Rope::from_str(&text);
     let start_offset = document::DocumentStore::position_to_offset(
@@ -934,17 +608,13 @@ fn handle_code_action<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[
     let lsp_actions: Vec<Value> = actions
         .iter()
         .map(|action| {
-            let edit_pos = document::DocumentStore::offset_to_position(&rope, action.edit_offset);
             serde_json::json!({
                 "title": action.title,
                 "kind": "quickfix",
                 "edit": {
                     "changes": {
                         uri_str: [{
-                            "range": {
-                                "start": { "line": edit_pos.line, "character": edit_pos.character },
-                                "end": { "line": edit_pos.line, "character": edit_pos.character }
-                            },
+                            "range": lsp_range_json(&rope, action.edit_offset, action.edit_offset),
                             "newText": action.edit_text
                         }]
                     }
@@ -953,42 +623,13 @@ fn handle_code_action<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_actions
-    });
-
-    rpc::write_response(writer, &response, "textDocument/codeAction");
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_actions)), "textDocument/codeAction");
 }
 
 fn handle_formatting<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/formatting: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/formatting") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let rope = ropey::Rope::from_str(&text);
     let format_edits = formatting::format(&text);
@@ -996,54 +637,20 @@ fn handle_formatting<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
     let lsp_edits: Vec<Value> = format_edits
         .iter()
         .map(|edit| {
-            let start = document::DocumentStore::offset_to_position(&rope, edit.offset);
-            let end = document::DocumentStore::offset_to_position(&rope, edit.offset + edit.len);
             serde_json::json!({
-                "range": {
-                    "start": { "line": start.line, "character": start.character },
-                    "end": { "line": end.line, "character": end.character }
-                },
+                "range": lsp_range_json(&rope, edit.offset, edit.offset + edit.len),
                 "newText": edit.new_text
             })
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_edits
-    });
-
-    rpc::write_response(writer, &response, "textDocument/formatting");
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_edits)), "textDocument/formatting");
 }
 
 fn handle_folding_range<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/foldingRange: {}", e);
-            return;
-        }
-    };
-
-    let id = req.get("id").cloned().unwrap_or(Value::Number(0.into()));
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    let text = if let Ok(uri) = Uri::from_str(uri_str) {
-        state
-            .documents
-            .get(&uri)
-            .map(|doc| doc.rope.to_string())
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let req = match parse_request(msg, "textDocument/foldingRange") { Some(r) => r, None => return };
+    let id = get_request_id(&req);
+    let text = get_document_text(state, get_uri_str(&req));
 
     let ranges = folding::folding_ranges(&text);
 
@@ -1058,34 +665,5 @@ fn handle_folding_range<W: Write>(writer: &mut W, state: &mut ServerState, msg: 
         })
         .collect();
 
-    let response = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": lsp_ranges
-    });
-
-    rpc::write_response(writer, &response, "textDocument/foldingRange");
-}
-
-fn handle_did_close(state: &mut ServerState, msg: &[u8]) {
-    let req: Value = match serde_json::from_slice(msg) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("couldn't parse textDocument/didClose: {}", e);
-            return;
-        }
-    };
-
-    let uri_str = req
-        .get("params")
-        .and_then(|p| p.get("textDocument"))
-        .and_then(|td| td.get("uri"))
-        .and_then(|u| u.as_str())
-        .unwrap_or("unknown");
-
-    info!("Closed: {}", uri_str);
-
-    if let Ok(uri) = Uri::from_str(uri_str) {
-        state.documents.close(&uri);
-    }
+    rpc::write_response(writer, &make_response(id, Value::Array(lsp_ranges)), "textDocument/foldingRange");
 }

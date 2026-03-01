@@ -1,5 +1,6 @@
 //! Completion support for KQL.
 
+use crate::catalog;
 use crate::lexer;
 use crate::syntax::SyntaxKind;
 
@@ -12,26 +13,6 @@ pub struct CompletionItem {
 
 /// LSP CompletionItemKind values.
 const COMPLETION_KIND_KEYWORD: i32 = 14;
-
-/// Tabular operators available after a pipe.
-const TABULAR_OPERATORS: &[(&str, &str)] = &[
-    ("where", "Filter rows based on a predicate"),
-    ("project", "Select columns to include, rename, or drop"),
-    ("extend", "Create calculated columns and append them"),
-    ("summarize", "Aggregate groups of rows"),
-    ("take", "Return up to the specified number of rows"),
-    ("limit", "Return up to the specified number of rows"),
-    ("top", "Return the first N records sorted by the specified columns"),
-    ("sort", "Sort rows by one or more columns"),
-    ("order", "Sort rows by one or more columns"),
-    ("count", "Return the number of rows"),
-    ("distinct", "Return distinct combinations of columns"),
-    ("join", "Merge rows of two tables by matching values"),
-    ("union", "Take two or more tables and return all their rows"),
-    ("render", "Render results as a chart"),
-    ("parse", "Evaluate a string expression and parse its value"),
-    ("mv-expand", "Expand multi-value dynamic arrays or property bags"),
-];
 
 /// Compute completions at the given byte offset in the source text.
 pub fn complete_at(text: &str, offset: usize) -> Vec<CompletionItem> {
@@ -57,7 +38,7 @@ fn is_pipe_then_partial_ident(prefix: &str) -> bool {
     // Walk backwards through tokens (skipping whitespace) to find what's before the cursor
     let meaningful: Vec<_> = tokens
         .iter()
-        .filter(|t| t.kind != SyntaxKind::Whitespace && t.kind != SyntaxKind::Newline)
+        .filter(|t| !catalog::is_trivia(t.kind))
         .collect();
 
     if meaningful.len() >= 2 {
@@ -66,7 +47,7 @@ fn is_pipe_then_partial_ident(prefix: &str) -> bool {
         // Pattern: ... | <identifier>  (cursor is at/after the identifier)
         if second_last.kind == SyntaxKind::Pipe
             && (last.kind == SyntaxKind::Identifier
-                || is_keyword(last.kind))
+                || catalog::is_keyword(last.kind))
         {
             return true;
         }
@@ -82,48 +63,13 @@ fn is_pipe_then_partial_ident(prefix: &str) -> bool {
     false
 }
 
-fn is_keyword(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::WhereKw
-            | SyntaxKind::TakeKw
-            | SyntaxKind::LimitKw
-            | SyntaxKind::LetKw
-            | SyntaxKind::ByKw
-            | SyntaxKind::ProjectKw
-            | SyntaxKind::ExtendKw
-            | SyntaxKind::SummarizeKw
-            | SyntaxKind::SortKw
-            | SyntaxKind::OrderKw
-            | SyntaxKind::TopKw
-            | SyntaxKind::CountKw
-            | SyntaxKind::DistinctKw
-            | SyntaxKind::JoinKw
-            | SyntaxKind::UnionKw
-            | SyntaxKind::AndKw
-            | SyntaxKind::OrKw
-            | SyntaxKind::NotKw
-            | SyntaxKind::ContainsKw
-            | SyntaxKind::NotContainsKw
-            | SyntaxKind::ContainsCsKw
-            | SyntaxKind::HasKw
-            | SyntaxKind::NotHasKw
-            | SyntaxKind::HasCsKw
-            | SyntaxKind::StartswithKw
-            | SyntaxKind::EndswithKw
-            | SyntaxKind::MatchesRegexKw
-            | SyntaxKind::InKw
-            | SyntaxKind::BetweenKw
-    )
-}
-
 fn tabular_operator_completions() -> Vec<CompletionItem> {
-    TABULAR_OPERATORS
+    catalog::TABULAR_OPERATORS
         .iter()
-        .map(|(label, detail)| CompletionItem {
-            label: label.to_string(),
+        .map(|op| CompletionItem {
+            label: op.name.to_string(),
             kind: COMPLETION_KIND_KEYWORD,
-            detail: Some(detail.to_string()),
+            detail: Some(op.description.to_string()),
         })
         .collect()
 }

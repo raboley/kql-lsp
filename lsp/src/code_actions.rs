@@ -47,8 +47,7 @@ fn check_missing_semicolon(text: &str, start_offset: usize, end_offset: usize) -
                 let t = &tokens[j];
                 if t.kind == SyntaxKind::Semicolon {
                     has_semicolon = true;
-                    let_end = let_end + t.len;
-                    j += 1;
+                    let_end += t.len;
                     break;
                 }
                 if t.kind == SyntaxKind::Newline {

@@ -1,9 +1,11 @@
 //! Go-to-definition support for KQL let-bound variables.
 
+use crate::catalog;
 use crate::lexer;
 use crate::syntax::SyntaxKind;
 
 /// A definition location (byte offsets into the source text).
+#[allow(dead_code)]
 pub struct DefinitionResult {
     /// Start of the let statement.
     pub range_start: usize,
@@ -52,10 +54,7 @@ pub fn find_definition(text: &str, offset: usize) -> Option<DefinitionResult> {
 
             while j < tokens.len() {
                 let t = &tokens[j];
-                if t.kind != SyntaxKind::Whitespace
-                    && t.kind != SyntaxKind::Newline
-                    && t.kind != SyntaxKind::Comment
-                {
+                if !catalog::is_trivia(t.kind) {
                     break;
                 }
                 name_offset += t.len;

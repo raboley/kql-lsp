@@ -10,7 +10,7 @@ pub const TOKEN_TYPE_STRING: u32 = 2;
 pub const TOKEN_TYPE_COMMENT: u32 = 3;
 pub const TOKEN_TYPE_OPERATOR: u32 = 4;
 pub const TOKEN_TYPE_PROPERTY: u32 = 5;
-pub const TOKEN_TYPE_VARIABLE: u32 = 6;
+pub const _TOKEN_TYPE_VARIABLE: u32 = 6;
 
 /// The token type legend (order must match the constants above).
 pub const TOKEN_TYPES: &[&str] = &[

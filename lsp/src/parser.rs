@@ -1,7 +1,7 @@
 //! KQL parser - builds a rowan CST from a token stream.
 
 use crate::lexer::{self, Token};
-use crate::syntax::{KqlLanguage, SyntaxKind, SyntaxNode};
+use crate::syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
 /// A parse error with a message and text range.

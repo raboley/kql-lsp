@@ -1,5 +1,6 @@
 //! Find references for KQL let-bound variables.
 
+use crate::catalog;
 use crate::lexer;
 use crate::syntax::SyntaxKind;
 
@@ -69,10 +70,7 @@ fn is_let_defined(text: &str, tokens: &[lexer::Token], name: &str) -> bool {
             let mut name_offset = token_offset + token.len;
             while j < tokens.len() {
                 let t = &tokens[j];
-                if t.kind != SyntaxKind::Whitespace
-                    && t.kind != SyntaxKind::Newline
-                    && t.kind != SyntaxKind::Comment
-                {
+                if !catalog::is_trivia(t.kind) {
                     break;
                 }
                 name_offset += t.len;

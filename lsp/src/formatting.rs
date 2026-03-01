@@ -23,8 +23,6 @@ pub fn format(text: &str) -> Vec<FormatEdit> {
 
     for i in 0..tokens.len() {
         let token = &tokens[i];
-        let token_text = &text[offset..offset + token.len];
-
         match token.kind {
             SyntaxKind::Pipe => {
                 // Rule: pipe should be preceded by a newline (not inline)

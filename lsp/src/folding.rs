@@ -3,7 +3,6 @@
 
 use crate::parser;
 use crate::syntax::SyntaxKind;
-use rowan::NodeOrToken;
 
 /// A folding range (line-based).
 #[derive(Debug)]
