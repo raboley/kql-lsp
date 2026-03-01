@@ -93,32 +93,17 @@ fn find_column_completion_context(text: &str, offset: usize) -> Option<String> {
         return None;
     }
 
-    // Check if the last meaningful token (or second-to-last if last is a partial ident)
-    // is a column-accepting operator keyword
-    let is_column_operator = |kind: SyntaxKind| {
-        matches!(
-            kind,
-            SyntaxKind::WhereKw
-                | SyntaxKind::ProjectKw
-                | SyntaxKind::ExtendKw
-                | SyntaxKind::DistinctKw
-        )
-    };
-
-    // Also match "summarize ... by" and "sort by" / "order by" / "top ... by"
-    let is_by_keyword = |kind: SyntaxKind| kind == SyntaxKind::ByKw;
-
     let last = meaningful.last().unwrap();
 
-    let in_column_position = is_column_operator(last.kind)
-        || is_by_keyword(last.kind)
+    let in_column_position = catalog::is_column_operator(last.kind)
+        || last.kind == SyntaxKind::ByKw
         // After a comma in column lists (e.g., "| project State, ")
         || last.kind == SyntaxKind::Comma
         // After a partial identifier following a column operator or comma
         || (meaningful.len() >= 2 && {
             let prev = meaningful[meaningful.len() - 2];
             (last.kind == SyntaxKind::Identifier || catalog::is_keyword(last.kind))
-                && (is_column_operator(prev.kind) || is_by_keyword(prev.kind) || prev.kind == SyntaxKind::Comma)
+                && (catalog::is_column_operator(prev.kind) || prev.kind == SyntaxKind::ByKw || prev.kind == SyntaxKind::Comma)
         });
 
     if !in_column_position {
@@ -127,33 +112,7 @@ fn find_column_completion_context(text: &str, offset: usize) -> Option<String> {
 
     // Find the table name: walk backward through all tokens to find the first
     // identifier before any pipe in the current query
-    find_table_for_query(text, offset)
-}
-
-/// Walk backward through the query text to find the source table name.
-/// The table name is the first identifier at the start of the current query statement.
-fn find_table_for_query(text: &str, offset: usize) -> Option<String> {
-    let prefix = &text[..offset.min(text.len())];
-
-    // Find the start of the current query block (after last blank line or start of text)
-    let query_start = prefix.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
-    let query_text = &prefix[query_start..];
-
-    let tokens = lexer::lex(query_text);
-
-    // Walk tokens to find the first meaningful token and its offset
-    let mut pos = 0;
-    for token in &tokens {
-        if !catalog::is_trivia(token.kind) {
-            if token.kind == SyntaxKind::Identifier {
-                return Some(query_text[pos..pos + token.len].to_string());
-            }
-            break;
-        }
-        pos += token.len;
-    }
-
-    None
+    catalog::find_table_for_query(text, offset)
 }
 
 fn table_name_completions(schema: &SchemaStore) -> Vec<CompletionItem> {

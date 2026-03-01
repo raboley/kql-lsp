@@ -60,7 +60,7 @@ fn hover_for_schema_identifier(
     }
 
     // Check if it's a column name by finding the table for this query
-    let table_name = find_table_for_hover(text, token_offset)?;
+    let table_name = catalog::find_table_for_query(text, token_offset)?;
     if schema.has_column(&table_name, token_text) {
         let columns = schema.columns_for_table(&table_name);
         let col = columns.iter().find(|c| c.name.eq_ignore_ascii_case(token_text))?;
@@ -71,25 +71,6 @@ fn hover_for_schema_identifier(
     None
 }
 
-/// Find the table name for hover by looking at the start of the current query.
-fn find_table_for_hover(text: &str, offset: usize) -> Option<String> {
-    let prefix = &text[..offset.min(text.len())];
-    let query_start = prefix.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
-    let query_text = &text[query_start..];
-
-    let tokens = lexer::lex(query_text);
-    let mut pos = 0;
-    for token in &tokens {
-        if !catalog::is_trivia(token.kind) {
-            if token.kind == SyntaxKind::Identifier {
-                return Some(query_text[pos..pos + token.len].to_string());
-            }
-            break;
-        }
-        pos += token.len;
-    }
-    None
-}
 
 fn hover_for_token(kind: SyntaxKind, text: &str) -> Option<HoverResult> {
     match kind {

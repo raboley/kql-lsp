@@ -157,22 +157,11 @@ fn check_column_references(
     rope: &Rope,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    // Walk tokens looking for identifiers after column-accepting operators
-    let is_column_operator = |kind: SyntaxKind| {
-        matches!(
-            kind,
-            SyntaxKind::WhereKw
-                | SyntaxKind::ProjectKw
-                | SyntaxKind::ExtendKw
-                | SyntaxKind::DistinctKw
-        )
-    };
-
     let mut in_column_context = false;
 
     for (i, token) in tokens.iter().enumerate() {
         // Enter column context after a column-accepting operator
-        if is_column_operator(token.kind) || token.kind == SyntaxKind::ByKw {
+        if catalog::is_column_operator(token.kind) || token.kind == SyntaxKind::ByKw {
             in_column_context = true;
             continue;
         }

@@ -199,3 +199,37 @@ pub fn find_tabular_operator(name: &str) -> Option<&'static TabularOperator> {
 pub fn find_string_operator(name: &str) -> Option<&'static StringOperator> {
     STRING_OPERATORS.iter().find(|o| o.name == name)
 }
+
+/// Returns true if the SyntaxKind is a tabular operator that accepts column arguments.
+pub fn is_column_operator(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::WhereKw
+            | SyntaxKind::ProjectKw
+            | SyntaxKind::ExtendKw
+            | SyntaxKind::DistinctKw
+    )
+}
+
+/// Find the source table name for a query at the given offset.
+/// Walks backward to find the query block start, then returns the first identifier.
+pub fn find_table_for_query(text: &str, offset: usize) -> Option<String> {
+    use crate::lexer;
+
+    let prefix = &text[..offset.min(text.len())];
+    let query_start = prefix.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
+    let query_text = &prefix[query_start..];
+
+    let tokens = lexer::lex(query_text);
+    let mut pos = 0;
+    for token in &tokens {
+        if !is_trivia(token.kind) {
+            if token.kind == SyntaxKind::Identifier {
+                return Some(query_text[pos..pos + token.len].to_string());
+            }
+            break;
+        }
+        pos += token.len;
+    }
+    None
+}
