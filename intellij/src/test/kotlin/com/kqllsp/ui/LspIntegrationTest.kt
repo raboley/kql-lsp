@@ -16,7 +16,7 @@ import java.time.Duration
 /**
  * UI integration tests for the KQL LSP plugin.
  *
- * These tests open all 20 slice example files from docs/examples/ and verify
+ * These tests open all slice example files from docs/examples/ and verify
  * the LSP handles them without crashes. This catches regressions like the CRLF
  * StringIndexOutOfBoundsException bug that only appeared with real Windows files.
  *
@@ -65,6 +65,7 @@ class LspIntegrationTest {
         "slice-18-formatting.kql",
         "slice-19-folding.kql",
         "slice-20-rename.kql",
+        "slice-21-schema-load.kql",
     )
 
     /** Character offset into app.log recorded before opening example files. */
@@ -203,7 +204,7 @@ class LspIntegrationTest {
 
     @Test
     @Order(5)
-    fun `05 - open all 20 example files`() {
+    fun `05 - open all example files`() {
         // Copy example files into the test-project directory so lsp4ij can
         // see them within its project scope (lsp4ij only sends didOpen for
         // files that belong to the open project).
@@ -329,6 +330,6 @@ class LspIntegrationTest {
 
         println("LSP binary running: $lspRunning")
         assertTrue(lspRunning,
-            "LSP binary '$lspBinaryName' should still be running after processing all 20 example files")
+            "LSP binary '$lspBinaryName' should still be running after processing all example files")
     }
 }

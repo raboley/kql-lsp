@@ -1,0 +1,22 @@
+{
+  "database": "TestDB",
+  "tables": [
+    {
+      "name": "StormEvents",
+      "columns": [
+        { "name": "StartTime", "type": "datetime" },
+        { "name": "EndTime", "type": "datetime" },
+        { "name": "State", "type": "string" },
+        { "name": "EventType", "type": "string" },
+        { "name": "DamageProperty", "type": "long" }
+      ]
+    },
+    {
+      "name": "PopulationData",
+      "columns": [
+        { "name": "State", "type": "string" },
+        { "name": "Population", "type": "long" }
+      ]
+    }
+  ]
+}

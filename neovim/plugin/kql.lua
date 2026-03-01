@@ -14,6 +14,7 @@ vim.api.nvim_create_autocmd("FileType", {
       name = "kql-lsp",
       cmd = { binary },
       root_dir = vim.fn.getcwd(),
+      init_options = vim.g.kql_lsp_init_options or {},
     })
   end,
 })

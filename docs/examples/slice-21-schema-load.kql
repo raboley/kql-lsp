@@ -1,0 +1,9 @@
+// Slice 21: Schema loading and table name completion
+// When schema is loaded (via .kql-lsp.json or initializationOptions),
+// the LSP offers table name completions at the start of queries.
+StormEvents
+| where State == "TEXAS"
+| take 10
+
+PopulationData
+| project State, Population

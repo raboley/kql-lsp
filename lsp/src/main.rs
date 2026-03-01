@@ -1,6 +1,7 @@
 mod catalog;
 mod code_actions;
 mod completion;
+mod config;
 mod definition;
 mod diagnostics;
 mod document;
@@ -10,6 +11,7 @@ mod hover;
 mod lexer;
 mod parser;
 mod references;
+mod schema;
 mod signature_help;
 mod rpc;
 mod semantic_tokens;
@@ -186,7 +188,7 @@ fn handle_message<W: Write>(writer: &mut W, state: &mut ServerState, method: &st
 // Handler implementations
 // ---------------------------------------------------------------------------
 
-fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[u8]) {
+fn handle_initialize<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
     let req = match parse_request(msg, "initialize") { Some(r) => r, None => return };
     let id = get_request_id(&req);
 
@@ -194,6 +196,51 @@ fn handle_initialize<W: Write>(writer: &mut W, _state: &mut ServerState, msg: &[
         let name = client_info.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
         let version = client_info.get("version").and_then(|v| v.as_str()).unwrap_or("unknown");
         info!("connected to client: {}, version: {}", name, version);
+    }
+
+    // Parse rootUri for config file resolution
+    let root_dir = req
+        .get("params")
+        .and_then(|p| p.get("rootUri"))
+        .and_then(|u| u.as_str())
+        .and_then(|u| {
+            // rootUri is file:///path/to/dir — strip the scheme
+            if let Some(path) = u.strip_prefix("file://") {
+                Some(std::path::PathBuf::from(path))
+            } else {
+                Some(std::path::PathBuf::from(u))
+            }
+        });
+
+    // Load config: initializationOptions > .kql-lsp.json in workspace root
+    let init_opts = req.get("params").and_then(|p| p.get("initializationOptions"));
+    let root_path = root_dir.as_deref();
+    let mut lsp_config = if let Some(opts) = init_opts {
+        config::LspConfig::from_init_options(opts, root_path)
+    } else {
+        config::LspConfig::default()
+    };
+
+    // Fall back to .kql-lsp.json if initializationOptions didn't provide schema config
+    if lsp_config.schema_file.is_none() && lsp_config.adx.is_none() {
+        if let Some(root) = root_path {
+            if let Some(file_config) = config::LspConfig::from_file(root) {
+                lsp_config = file_config;
+            }
+        }
+    }
+
+    // Load schema from static file if configured
+    if let Some(ref schema_path) = lsp_config.schema_file {
+        match schema::load_from_file(schema_path) {
+            Ok(db_schema) => {
+                info!("Loaded schema from file: {} ({} tables)", schema_path.display(), db_schema.tables.len());
+                state.schema.load(db_schema, schema::SchemaSource::Static);
+            }
+            Err(e) => {
+                info!("Failed to load schema file: {}", e);
+            }
+        }
     }
 
     let token_types: Vec<&str> = semantic_tokens::TOKEN_TYPES.to_vec();
@@ -404,7 +451,7 @@ fn handle_completion<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u
 
     let rope = ropey::Rope::from_str(&text);
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
-    let items = completion::complete_at(&text, offset);
+    let items = completion::complete_at(&text, offset, &state.schema);
 
     let lsp_items: Vec<Value> = items
         .iter()

@@ -10,6 +10,7 @@ function M.open_kql_buffer(content)
   local bufnr = vim.api.nvim_get_current_buf()
   vim.bo[bufnr].filetype = "kql"
   vim.bo[bufnr].buftype = "nofile"
+  vim.bo[bufnr].swapfile = false
   -- Give it a .kql name so the LSP recognizes it
   vim.api.nvim_buf_set_name(bufnr, "test_" .. bufnr .. ".kql")
 
