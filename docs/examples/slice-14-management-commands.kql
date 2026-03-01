@@ -1,0 +1,19 @@
+// Slice 14: Management Commands (.show, .create)
+// Feature: Management commands starting with . parse without errors.
+// They appear in document symbols (outline view).
+
+// Show commands:
+.show tables
+.show databases
+.show table MyTable schema
+
+// Create commands:
+.create table MyTable (Name: string, Age: int, Score: real)
+
+// Other management commands:
+.alter table MyTable (Name: string, Age: int, Score: real, Active: bool)
+.drop table TempTable
+.set database MyDB readonly
+
+// Management commands are parsed loosely — the LSP consumes all tokens
+// until end-of-line without requiring strict grammar for each command variant.

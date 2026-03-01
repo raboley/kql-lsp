@@ -84,6 +84,7 @@ pub enum SyntaxKind {
     ParenExpr,
     NameRef,
     Literal,
+    ManagementCommand,
     ErrorNode,
 }
 
@@ -100,7 +101,7 @@ impl rowan::Language for KqlLanguage {
     type Kind = SyntaxKind;
 
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
-        assert!(raw.0 <= SyntaxKind::ErrorNode as u16, "SyntaxKind out of range: {}", raw.0);
+        assert!(raw.0 <= SyntaxKind::ErrorNode as u16, "SyntaxKind out of range: {} (max: {})", raw.0, SyntaxKind::ErrorNode as u16);
         // SAFETY: SyntaxKind is repr(u16) and we checked bounds
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }

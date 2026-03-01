@@ -145,6 +145,8 @@ impl<'a> Parser<'a> {
         while self.pos < self.tokens.len() {
             if self.at(SyntaxKind::LetKw) {
                 self.parse_let_statement();
+            } else if self.at(SyntaxKind::Dot) {
+                self.parse_management_command();
             } else if self.at_any(&[SyntaxKind::Identifier, SyntaxKind::Pipe]) {
                 self.parse_query_statement();
             } else if self.at_any(&[SyntaxKind::Whitespace, SyntaxKind::Newline, SyntaxKind::Comment]) {
@@ -193,6 +195,20 @@ impl<'a> Parser<'a> {
 
         // Parse optional semicolon
         self.eat(SyntaxKind::Semicolon);
+
+        self.builder.finish_node();
+    }
+
+    fn parse_management_command(&mut self) {
+        self.builder.start_node(SyntaxKind::ManagementCommand.into());
+
+        // Consume everything until newline or EOF (loose parsing)
+        while let Some(kind) = self.current() {
+            if kind == SyntaxKind::Newline {
+                break;
+            }
+            self.bump();
+        }
 
         self.builder.finish_node();
     }
@@ -791,6 +807,18 @@ mod tests {
     #[test]
     fn parse_let_chain_then_query() {
         let result = parse("let x = 1;\nlet y = 2;\nStormEvents | where Col > x");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_show_tables() {
+        let result = parse(".show tables");
+        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parse_create_table() {
+        let result = parse(".create table MyTable (Name: string, Age: int)");
         assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
     }
 }

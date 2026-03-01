@@ -6,6 +6,7 @@ use crate::syntax::{SyntaxKind, SyntaxNode};
 /// LSP SymbolKind numeric values.
 const SYMBOL_KIND_VARIABLE: i32 = 13;
 const SYMBOL_KIND_EVENT: i32 = 24;
+const SYMBOL_KIND_MODULE: i32 = 2; // Management commands
 
 /// A document symbol extracted from the CST.
 pub struct DocSymbol {
@@ -31,6 +32,11 @@ pub fn extract_symbols(parse_result: &ParseResult) -> Vec<DocSymbol> {
             }
             SyntaxKind::QueryStatement => {
                 if let Some(sym) = extract_query_symbol(&child) {
+                    symbols.push(sym);
+                }
+            }
+            SyntaxKind::ManagementCommand => {
+                if let Some(sym) = extract_management_symbol(&child) {
                     symbols.push(sym);
                 }
             }
@@ -80,6 +86,28 @@ fn extract_query_symbol(node: &SyntaxNode) -> Option<DocSymbol> {
         range_end,
         selection_start,
         selection_end,
+    })
+}
+
+fn extract_management_symbol(node: &SyntaxNode) -> Option<DocSymbol> {
+    // Build the command name from all tokens (e.g., ".show tables")
+    let text = node.text().to_string().trim().to_string();
+    let name = if text.len() > 40 {
+        format!("{}...", &text[..40])
+    } else {
+        text
+    };
+
+    let range_start = node.text_range().start().into();
+    let range_end = node.text_range().end().into();
+
+    Some(DocSymbol {
+        name,
+        kind: SYMBOL_KIND_MODULE,
+        range_start,
+        range_end,
+        selection_start: range_start,
+        selection_end: range_end,
     })
 }
 
