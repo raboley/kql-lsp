@@ -1,0 +1,6 @@
+// Slice 25: Schema hover (tables and columns)
+// Hover over a table name to see its column list.
+// Hover over a column name to see its type.
+StormEvents
+| where State == "TEXAS"
+| project State, EventType, DamageProperty

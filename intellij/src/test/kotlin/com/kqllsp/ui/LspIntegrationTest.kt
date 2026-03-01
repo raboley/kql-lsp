@@ -68,6 +68,7 @@ class LspIntegrationTest {
         "slice-21-schema-load.kql",
         "slice-23-column-completion.kql",
         "slice-24-schema-diagnostics.kql",
+        "slice-25-schema-hover.kql",
     )
 
     /** Character offset into app.log recorded before opening example files. */

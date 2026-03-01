@@ -487,7 +487,7 @@ fn handle_hover<W: Write>(writer: &mut W, state: &mut ServerState, msg: &[u8]) {
     let rope = ropey::Rope::from_str(&text);
     let offset = document::DocumentStore::position_to_offset(&rope, pos);
 
-    let result = match hover::hover_at(&text, offset) {
+    let result = match hover::hover_at(&text, offset, &state.schema) {
         Some(hover_result) => serde_json::json!({
             "contents": {
                 "kind": "markdown",
