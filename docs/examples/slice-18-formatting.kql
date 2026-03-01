@@ -1,0 +1,19 @@
+// Slice 18: Formatting
+// Feature: Auto-format normalizes pipe chain layout and operator spacing.
+// In Neovim: :lua vim.lsp.buf.format()
+// In IntelliJ: Ctrl+Alt+L
+
+// BEFORE formatting (everything on one line, no spaces):
+// StormEvents|where DamageProperty>100|take 10
+
+// AFTER formatting (pipes on new lines, spaces around operators):
+StormEvents
+| where DamageProperty > 100
+| take 10
+
+// Formatting rules:
+// 1. Pipe operators go on new lines
+// 2. Spaces around comparison operators (>, <, ==, !=, >=, <=)
+// 3. Spaces around arithmetic operators (+, -, *, /, %)
+// 4. Space after pipe character
+// 5. Already well-formatted text produces no edits
